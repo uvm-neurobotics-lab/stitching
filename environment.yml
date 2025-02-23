@@ -8,4 +8,5 @@ dependencies:
   - jupyter
   - seaborn
   - tqdm
-prefix: /Users/ntraft/miniconda3/envs/stitch
+  - pytest
+  - tabulate
