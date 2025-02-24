@@ -405,13 +405,16 @@ def test_swin_beginning_chunk_subnet():
 
 
 def test_swin_end_chunk_subnet():
+    """
+    The tricky part of this test is that we need to identify that the beginning of "features.7" is not actually where
+    the input goes. We should end up with a subnet that first has a bunch of retrieving/transforming of attributes.
+    Then later the input finally gets used in the `shifted_window_attention()` call, as well as the add_44 skip conn.
+    """
     model = torchvision.models.swin_v2_s()
-    model = create_sub_network(model, input_nodes=["features.6.norm"], return_nodes=["head"])
+    model = create_sub_network(model, input_nodes=["features.7"], return_nodes=["head"])
     # Lazy shortcut: instead of checking all this in code, just use the string format.
     # Downside: if the print format ever changed, this would fail unnecessarily.
     assert str(model.graph) == """graph():
-    %subnet_input_1 : [num_users=1] = placeholder[target=subnet_input_1]
-    %features_6_norm : [num_users=2] = call_module[target=features.6.norm](args = (%subnet_input_1,), kwargs = {})
     %features_7_0_attn_relative_coords_table : [num_users=1] = get_attr[target=features.7.0.attn.relative_coords_table]
     %features_7_0_attn_cpb_mlp_0 : [num_users=1] = call_module[target=features.7.0.attn.cpb_mlp.0](args = (%features_7_0_attn_relative_coords_table,), kwargs = {})
     %features_7_0_attn_cpb_mlp_1 : [num_users=1] = call_module[target=features.7.0.attn.cpb_mlp.1](args = (%features_7_0_attn_cpb_mlp_0,), kwargs = {})
@@ -426,10 +429,11 @@ def test_swin_end_chunk_subnet():
     %features_7_0_attn_qkv_bias : [num_users=1] = get_attr[target=features.7.0.attn.qkv.bias]
     %features_7_0_attn_proj_bias : [num_users=1] = get_attr[target=features.7.0.attn.proj.bias]
     %features_7_0_attn_logit_scale : [num_users=1] = get_attr[target=features.7.0.attn.logit_scale]
-    %shifted_window_attention_22 : [num_users=1] = call_function[target=torchvision.models.swin_transformer.shifted_window_attention](args = (%features_6_norm, %features_7_0_attn_qkv_weight, %features_7_0_attn_proj_weight, %mul_22, [8, 8], 24), kwargs = {shift_size: [0, 0], attention_dropout: 0.0, dropout: 0.0, qkv_bias: %features_7_0_attn_qkv_bias, proj_bias: %features_7_0_attn_proj_bias, logit_scale: %features_7_0_attn_logit_scale, training: True})
+    %subnet_input_1 : [num_users=2] = placeholder[target=subnet_input_1]
+    %shifted_window_attention_22 : [num_users=1] = call_function[target=torchvision.models.swin_transformer.shifted_window_attention](args = (%subnet_input_1, %features_7_0_attn_qkv_weight, %features_7_0_attn_proj_weight, %mul_22, [8, 8], 24), kwargs = {shift_size: [0, 0], attention_dropout: 0.0, dropout: 0.0, qkv_bias: %features_7_0_attn_qkv_bias, proj_bias: %features_7_0_attn_proj_bias, logit_scale: %features_7_0_attn_logit_scale, training: True})
     %features_7_0_norm1 : [num_users=1] = call_module[target=features.7.0.norm1](args = (%shifted_window_attention_22,), kwargs = {})
     %features_7_0_stochastic_depth : [num_users=1] = call_module[target=features.7.0.stochastic_depth](args = (%features_7_0_norm1,), kwargs = {})
-    %add_44 : [num_users=2] = call_function[target=operator.add](args = (%features_6_norm, %features_7_0_stochastic_depth), kwargs = {})
+    %add_44 : [num_users=2] = call_function[target=operator.add](args = (%subnet_input_1, %features_7_0_stochastic_depth), kwargs = {})
     %features_7_0_mlp : [num_users=1] = call_module[target=features.7.0.mlp](args = (%add_44,), kwargs = {})
     %features_7_0_norm2 : [num_users=1] = call_module[target=features.7.0.norm2](args = (%features_7_0_mlp,), kwargs = {})
     %features_7_0_stochastic_depth_1 : [num_users=1] = call_module[target=features.7.0.stochastic_depth](args = (%features_7_0_norm2,), kwargs = {})
@@ -463,19 +467,58 @@ def test_swin_end_chunk_subnet():
     %head : [num_users=1] = call_module[target=head](args = (%flatten,), kwargs = {})
     return {'head': head}"""
 
-# TODO: Add torch Swin to block list.
-# TODO: Is there anything we can do to prevent an input from replacing a getattr call?
-#    Example: create_sub_network(torchvision.models.swin_v2_s(), input_nodes=["features.7"], return_nodes=["head"])
+
+def test_vit_one_block_subnet():
+    model = timm.create_model("vit_tiny_patch16_224")
+    model = create_sub_network(model, input_nodes=["blocks.7"], return_nodes=["blocks.7"])
+    # Lazy shortcut: instead of checking all this in code, just use the string format.
+    # Downside: if the print format ever changed, this would fail unnecessarily.
+    assert str(model.graph) == """graph():
+    %subnet_input_1 : [num_users=2] = placeholder[target=subnet_input_1]
+    %blocks_7_norm1 : [num_users=2] = call_module[target=blocks.7.norm1](args = (%subnet_input_1,), kwargs = {})
+    %getattr_10 : [num_users=3] = call_function[target=builtins.getattr](args = (%blocks_7_norm1, shape), kwargs = {})
+    %getitem_47 : [num_users=2] = call_function[target=operator.getitem](args = (%getattr_10, 0), kwargs = {})
+    %getitem_48 : [num_users=2] = call_function[target=operator.getitem](args = (%getattr_10, 1), kwargs = {})
+    %getitem_49 : [num_users=1] = call_function[target=operator.getitem](args = (%getattr_10, 2), kwargs = {})
+    %blocks_7_attn_qkv : [num_users=1] = call_module[target=blocks.7.attn.qkv](args = (%blocks_7_norm1,), kwargs = {})
+    %reshape_14 : [num_users=1] = call_method[target=reshape](args = (%blocks_7_attn_qkv, %getitem_47, %getitem_48, 3, 3, 64), kwargs = {})
+    %permute_7 : [num_users=1] = call_method[target=permute](args = (%reshape_14, 2, 0, 3, 1, 4), kwargs = {})
+    %unbind_7 : [num_users=3] = call_method[target=unbind](args = (%permute_7, 0), kwargs = {})
+    %getitem_50 : [num_users=1] = call_function[target=operator.getitem](args = (%unbind_7, 0), kwargs = {})
+    %getitem_51 : [num_users=1] = call_function[target=operator.getitem](args = (%unbind_7, 1), kwargs = {})
+    %getitem_52 : [num_users=1] = call_function[target=operator.getitem](args = (%unbind_7, 2), kwargs = {})
+    %blocks_7_attn_q_norm : [num_users=1] = call_module[target=blocks.7.attn.q_norm](args = (%getitem_50,), kwargs = {})
+    %blocks_7_attn_k_norm : [num_users=1] = call_module[target=blocks.7.attn.k_norm](args = (%getitem_51,), kwargs = {})
+    %scaled_dot_product_attention_7 : [num_users=1] = call_function[target=torch._C._nn.scaled_dot_product_attention](args = (%blocks_7_attn_q_norm, %blocks_7_attn_k_norm, %getitem_52), kwargs = {dropout_p: 0.0})
+    %transpose_8 : [num_users=1] = call_method[target=transpose](args = (%scaled_dot_product_attention_7, 1, 2), kwargs = {})
+    %reshape_15 : [num_users=1] = call_method[target=reshape](args = (%transpose_8, %getitem_47, %getitem_48, %getitem_49), kwargs = {})
+    %blocks_7_attn_proj : [num_users=1] = call_module[target=blocks.7.attn.proj](args = (%reshape_15,), kwargs = {})
+    %blocks_7_attn_proj_drop : [num_users=1] = call_module[target=blocks.7.attn.proj_drop](args = (%blocks_7_attn_proj,), kwargs = {})
+    %blocks_7_ls1 : [num_users=1] = call_module[target=blocks.7.ls1](args = (%blocks_7_attn_proj_drop,), kwargs = {})
+    %blocks_7_drop_path1 : [num_users=1] = call_module[target=blocks.7.drop_path1](args = (%blocks_7_ls1,), kwargs = {})
+    %add_15 : [num_users=2] = call_function[target=operator.add](args = (%subnet_input_1, %blocks_7_drop_path1), kwargs = {})
+    %blocks_7_norm2 : [num_users=1] = call_module[target=blocks.7.norm2](args = (%add_15,), kwargs = {})
+    %blocks_7_mlp_fc1 : [num_users=1] = call_module[target=blocks.7.mlp.fc1](args = (%blocks_7_norm2,), kwargs = {})
+    %blocks_7_mlp_act : [num_users=1] = call_module[target=blocks.7.mlp.act](args = (%blocks_7_mlp_fc1,), kwargs = {})
+    %blocks_7_mlp_drop1 : [num_users=1] = call_module[target=blocks.7.mlp.drop1](args = (%blocks_7_mlp_act,), kwargs = {})
+    %blocks_7_mlp_norm : [num_users=1] = call_module[target=blocks.7.mlp.norm](args = (%blocks_7_mlp_drop1,), kwargs = {})
+    %blocks_7_mlp_fc2 : [num_users=1] = call_module[target=blocks.7.mlp.fc2](args = (%blocks_7_mlp_norm,), kwargs = {})
+    %blocks_7_mlp_drop2 : [num_users=1] = call_module[target=blocks.7.mlp.drop2](args = (%blocks_7_mlp_fc2,), kwargs = {})
+    %blocks_7_ls2 : [num_users=1] = call_module[target=blocks.7.ls2](args = (%blocks_7_mlp_drop2,), kwargs = {})
+    %blocks_7_drop_path2 : [num_users=1] = call_module[target=blocks.7.drop_path2](args = (%blocks_7_ls2,), kwargs = {})
+    %add_16 : [num_users=1] = call_function[target=operator.add](args = (%add_15, %blocks_7_drop_path2), kwargs = {})
+    return {'blocks.7': add_16}"""
 
 
-def test_tracing():
-    import math
-    from utils.subgraphs import _get_leaf_modules_for_ops, NodePathTracer
-    model = torchvision.models.swin_v2_s()
-    # model = timm.create_model("vit_small_patch16_224")
-    tracer = NodePathTracer(autowrap_modules=(math, torchvision.ops), leaf_modules=_get_leaf_modules_for_ops())
-    graph = tracer.trace(model)
-    print()
-    print(graph)
-    # graph.print_tabular()
-    print("\n".join([str(x) for x in tracer.node_to_qualname.items()]))
+# def test_tracing():
+#     """This is here in case you want to use it to print a model graph or test the tracer."""
+#     import math
+#     from utils.subgraphs import _get_leaf_modules_for_ops, NodePathTracer
+#     # model = torchvision.models.resnext50_32x4d()
+#     model = timm.create_model("vit_tiny_patch16_224")
+#     tracer = NodePathTracer(autowrap_modules=(math, torchvision.ops), leaf_modules=_get_leaf_modules_for_ops())
+#     graph = tracer.trace(model)
+#     print()
+#     print(graph)
+#     # graph.print_tabular()
+#     # print("\n".join([str(x) for x in tracer.node_to_qualname.items()]))

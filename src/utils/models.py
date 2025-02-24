@@ -23,6 +23,7 @@ WORKING_MODELS = ['resnet50', 'resnet101', 'resnet18',
                   'swin_tiny_patch4_window7_224', 'swin_small_patch4_window7_224', 'swin_base_patch4_window7_224',
                   'swin_large_patch4_window7_224']
 
+# TODO: These block splits often skip over some downsamples and maxpools, which could be useful to have separate.
 MODEL_ZOO = {
     'resnet18': {"backend": "pytorch",
                  "blocks": ['layer1.0', 'layer1.1', 'layer2.0', 'layer2.1',
@@ -32,21 +33,6 @@ MODEL_ZOO = {
                             'layer2.1', 'layer2.2', 'layer2.3', 'layer3.0',
                             'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
                             'layer3.5', 'layer4.0', 'layer4.1', 'layer4.2']},
-    'resnet50mocov2': {"backend": "pytorch",
-                       "blocks": ['layer1.0', 'layer1.1', 'layer1.2', 'layer2.0',
-                                  'layer2.1', 'layer2.2', 'layer2.3', 'layer3.0',
-                                  'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
-                                  'layer3.5', 'layer4.0', 'layer4.1', 'layer4.2']},
-    'resnet50byol': {"backend": "pytorch",
-                     "blocks": ['layer1.0', 'layer1.1', 'layer1.2', 'layer2.0',
-                                'layer2.1', 'layer2.2', 'layer2.3', 'layer3.0',
-                                'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
-                                'layer3.5', 'layer4.0', 'layer4.1', 'layer4.2']},
-    'resnet50simclr': {"backend": "pytorch",
-                       "blocks": ['layer1.0', 'layer1.1', 'layer1.2', 'layer2.0',
-                                  'layer2.1', 'layer2.2', 'layer2.3', 'layer3.0',
-                                  'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
-                                  'layer3.5', 'layer4.0', 'layer4.1', 'layer4.2']},
     'resnet101': {"backend": "pytorch",
                   "blocks": ['layer1.0', 'layer1.1', 'layer1.2', 'layer2.0', 'layer2.1', 'layer2.2', 'layer2.3',
                              'layer3.0', 'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4', 'layer3.5', 'layer3.6',
@@ -62,9 +48,6 @@ MODEL_ZOO = {
                              'layer3.24', 'layer3.25', 'layer3.26', 'layer3.27', 'layer3.28', 'layer3.29', 'layer3.30',
                              'layer3.31', 'layer3.32', 'layer3.33', 'layer3.34', 'layer3.35', 'layer4.0', 'layer4.1',
                              'layer4.2']},
-    'tf_efficientnetv2_l_in21ft1k': {"backend": "pytorch", "blocks": []},
-    'tf_efficientnetv2_m_in21ft1k': {"backend": "pytorch", "blocks": []},
-    'tf_efficientnetv2_s_in21ft1k': {"backend": "pytorch", "blocks": []},
     'efficientnet_b7': {"backend": "pytorch",
                         "blocks": ['features.1.0.block', 'features.1.1.block', 'features.1.2.block',
                                    'features.1.3.block', 'features.2.0.block', 'features.2.1.block',
@@ -162,34 +145,34 @@ MODEL_ZOO = {
                                    'features.5.1.block', 'features.5.2.block', 'features.6.0.block',
                                    'features.6.1.block', 'features.6.2.block', 'features.6.3.block',
                                    'features.7.0.block']},
-    'mobilenetv3_large_100': {"backend": "pytorch",
+    'mobilenetv3_large_100': {"backend": "timm",
                               "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1',
                                          'blocks.2.0', 'blocks.2.1', 'blocks.2.2',
                                          'blocks.3.0', 'blocks.3.1', 'blocks.3.2',
                                          'blocks.3.3', 'blocks.4.0', 'blocks.4.1',
                                          'blocks.5.0', 'blocks.5.1', 'blocks.5.2', 'blocks.6.0']},
-    'tf_mobilenetv3_large_075': {"backend": "pytorch",
+    'tf_mobilenetv3_large_075': {"backend": "timm",
                                  "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1',
                                             'blocks.2.0', 'blocks.2.1', 'blocks.2.2',
                                             'blocks.3.0', 'blocks.3.1', 'blocks.3.2',
                                             'blocks.3.3', 'blocks.4.0', 'blocks.4.1',
                                             'blocks.5.0', 'blocks.5.1', 'blocks.5.2', 'blocks.6.0']},
-    'tf_mobilenetv3_small_100': {"backend": "pytorch",
+    'tf_mobilenetv3_small_100': {"backend": "timm",
                                  "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1',
                                             'blocks.2.0', 'blocks.2.1', 'blocks.2.2',
                                             'blocks.3.0', 'blocks.3.1', 'blocks.4.0',
                                             'blocks.4.1', 'blocks.4.2', 'blocks.5.0']},
-    'tf_mobilenetv3_small_075': {"backend": "pytorch",
+    'tf_mobilenetv3_small_075': {"backend": "timm",
                                  "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1',
                                             'blocks.2.0', 'blocks.2.1', 'blocks.2.2',
                                             'blocks.3.0', 'blocks.3.1', 'blocks.4.0',
                                             'blocks.4.1', 'blocks.4.2', 'blocks.5.0']},
-    'mobilenetv2_140': {"backend": "pytorch",
+    'mobilenetv2_140': {"backend": "timm",
                         "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1', 'blocks.2.0',
                                    'blocks.2.1', 'blocks.2.2', 'blocks.3.0', 'blocks.3.1',
                                    'blocks.3.2', 'blocks.3.3', 'blocks.4.0', 'blocks.4.1',
                                    'blocks.4.2', 'blocks.5.0', 'blocks.5.1', 'blocks.5.2', 'blocks.6.0']},
-    'mobilenetv2_120d': {"backend": "pytorch",
+    'mobilenetv2_120d': {"backend": "timm",
                          "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1', 'blocks.1.2',
                                     'blocks.2.0', 'blocks.2.1', 'blocks.2.2', 'blocks.2.3',
                                     'blocks.2.4', 'blocks.3.0', 'blocks.3.1', 'blocks.3.2',
@@ -197,14 +180,14 @@ MODEL_ZOO = {
                                     'blocks.4.1', 'blocks.4.2', 'blocks.4.3', 'blocks.4.4',
                                     'blocks.5.0', 'blocks.5.1', 'blocks.5.2', 'blocks.5.3',
                                     'blocks.5.4', 'blocks.6.0']},
-    'mobilenetv2_110d': {"backend": "pytorch",
+    'mobilenetv2_110d': {"backend": "timm",
                          "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1', 'blocks.1.2',
                                     'blocks.2.0', 'blocks.2.1', 'blocks.2.2', 'blocks.2.3',
                                     'blocks.3.0', 'blocks.3.1', 'blocks.3.2', 'blocks.3.3',
                                     'blocks.3.4', 'blocks.4.0', 'blocks.4.1', 'blocks.4.2',
                                     'blocks.4.3', 'blocks.5.0', 'blocks.5.1', 'blocks.5.2',
                                     'blocks.5.3', 'blocks.6.0']},
-    'mobilenetv2_100': {"backend": "pytorch",
+    'mobilenetv2_100': {"backend": "timm",
                         "blocks": ['blocks.0.0', 'blocks.1.0', 'blocks.1.1', 'blocks.2.0',
                                    'blocks.2.1', 'blocks.2.2', 'blocks.3.0', 'blocks.3.1',
                                    'blocks.3.2', 'blocks.3.3', 'blocks.4.0', 'blocks.4.1',
@@ -276,14 +259,14 @@ MODEL_ZOO = {
                                   'trunk_output.block3.block3-4', 'trunk_output.block3.block3-5',
                                   'trunk_output.block3.block3-6', 'trunk_output.block3.block3-7',
                                   'trunk_output.block4.block4-0', 'trunk_output.block4.block4-1']},
-    'swsl_resnext101_32x8d': {"backend": "pytorch",
+    'swsl_resnext101_32x8d': {"backend": "timm",
                               "blocks": ['layer1.0', 'layer1.1', 'layer1.2', 'layer2.0', 'layer2.1', 'layer2.2',
                                          'layer2.3', 'layer3.0', 'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
                                          'layer3.5', 'layer3.6', 'layer3.7', 'layer3.8', 'layer3.9', 'layer3.10',
                                          'layer3.11', 'layer3.12', 'layer3.13', 'layer3.14', 'layer3.15', 'layer3.16',
                                          'layer3.17', 'layer3.18', 'layer3.19', 'layer3.20', 'layer3.21', 'layer3.22',
                                          'layer4.0', 'layer4.1', 'layer4.2']},
-    'swsl_resnext50_32x4d': {"backend": "pytorch",
+    'swsl_resnext50_32x4d': {"backend": "timm",
                              "blocks": ['layer1.0', 'layer1.1', 'layer1.2', 'layer2.0',
                                         'layer2.1', 'layer2.2', 'layer2.3', 'layer3.0',
                                         'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
@@ -293,34 +276,69 @@ MODEL_ZOO = {
                                    'layer2.1', 'layer2.2', 'layer2.3', 'layer3.0',
                                    'layer3.1', 'layer3.2', 'layer3.3', 'layer3.4',
                                    'layer3.5', 'layer4.0', 'layer4.1', 'layer4.2']},
-    'vit_large_patch16_224': {"backend": "pytorch",
-                              "blocks": [f'blocks.{i}' for i in range(24)]},
-    'vit_base_patch16_224': {"backend": "pytorch",
+    'vit_tiny_patch16_224': {"backend": "timm",
                              "blocks": [f'blocks.{i}' for i in range(12)]},
-    'vit_base_patch16_224mae': {"backend": "pytorch",
-                                "blocks": [f'blocks.{i}' for i in range(12)]},
-    'vit_base_patch16_224mocov3': {"backend": "pytorch",
-                                   "blocks": [f'blocks.{i}' for i in range(12)]},
-    'vit_small_patch16_224': {"backend": "pytorch",
+    'vit_small_patch16_224': {"backend": "timm",
                               "blocks": [f'blocks.{i}' for i in range(12)]},
-    'vit_small_patch16_224mocov3': {"backend": "pytorch",
-                                    "blocks": [f'blocks.{i}' for i in range(12)]},
-    'vit_tiny_patch16_224': {"backend": "pytorch",
+    'vit_base_patch16_224': {"backend": "timm",
                              "blocks": [f'blocks.{i}' for i in range(12)]},
-    'tf_inception_v3': {"backend": "pytorch",
-                        "blocks": ['Mixed_5b', 'Mixed_5c', 'Mixed_5d', 'Mixed_6a',
-                                   'Mixed_6b', 'Mixed_6c', 'Mixed_6d', 'Mixed_6e',
-                                   'Mixed_7a', 'Mixed_7b', 'Mixed_7c']},
-    'inception_resnet_v2': {"backend": "pytorch",
-                            "blocks": []},
-    'convnext_tiny': {"backend": "pytorch",
+    'vit_large_patch16_224': {"backend": "timm",
+                              "blocks": [f'blocks.{i}' for i in range(24)]},
+    'swin_t': {"backend": "pytorch",
+               "blocks": ['features.0.0', 'features.0.1', 'features.0.2',
+                          *(f'features.1.{i}' for i in range(2)), 'features.2',
+                          *(f'features.3.{i}' for i in range(2)), 'features.4',
+                          *(f'features.5.{i}' for i in range(6)), 'features.6',
+                          *(f'features.7.{i}' for i in range(2))]},
+    'swin_s': {"backend": "pytorch",
+               "blocks": ['features.0.0', 'features.0.1', 'features.0.2',
+                          *(f'features.1.{i}' for i in range(2)), 'features.2',
+                          *(f'features.3.{i}' for i in range(2)), 'features.4',
+                          *(f'features.5.{i}' for i in range(18)), 'features.6',
+                          *(f'features.7.{i}' for i in range(2))]},
+    'swin_b': {"backend": "pytorch",
+               "blocks": ['features.0.0', 'features.0.1', 'features.0.2',
+                          *(f'features.1.{i}' for i in range(2)), 'features.2',
+                          *(f'features.3.{i}' for i in range(2)), 'features.4',
+                          *(f'features.5.{i}' for i in range(18)), 'features.6',
+                          *(f'features.7.{i}' for i in range(2))]},
+    'swin_v2_t': {"backend": "pytorch",
+                  "blocks": ['features.0.0', 'features.0.1', 'features.0.2',
+                             *(f'features.1.{i}' for i in range(2)), 'features.2',
+                             *(f'features.3.{i}' for i in range(2)), 'features.4',
+                             *(f'features.5.{i}' for i in range(6)), 'features.6',
+                             *(f'features.7.{i}' for i in range(2))]},
+    'swin_v2_s': {"backend": "pytorch",
+                  "blocks": ['features.0.0', 'features.0.1', 'features.0.2',
+                             *(f'features.1.{i}' for i in range(2)), 'features.2',
+                             *(f'features.3.{i}' for i in range(2)), 'features.4',
+                             *(f'features.5.{i}' for i in range(18)), 'features.6',
+                             *(f'features.7.{i}' for i in range(2))]},
+    'swin_v2_b': {"backend": "pytorch",
+                  "blocks": ['features.0.0', 'features.0.1', 'features.0.2',
+                             *(f'features.1.{i}' for i in range(2)), 'features.2',
+                             *(f'features.3.{i}' for i in range(2)), 'features.4',
+                             *(f'features.5.{i}' for i in range(18)), 'features.6',
+                             *(f'features.7.{i}' for i in range(2))]},
+    'inception_v3': {"backend": "pytorch",
+                     "blocks": ['Conv2d_1a_3x3', 'Conv2d_2a_3x3', 'Conv2d_2b_3x3', 'maxpool1',
+                                'Conv2d_3b_1x1', 'Conv2d_4a_3x3', 'maxpool2',
+                                'Mixed_5b', 'Mixed_5c', 'Mixed_5d', 'Mixed_6a',
+                                'Mixed_6b', 'Mixed_6c', 'Mixed_6d', 'Mixed_6e',
+                                'Mixed_7a', 'Mixed_7b', 'Mixed_7c']},
+    'inception_resnet_v2': {"backend": "timm",
+                            "blocks": ['conv2d_1a', 'conv2d_2a', 'conv2d_2b', 'maxpool_3a',
+                                       'conv2d_3b', 'conv2d_4a', 'maxpool_5a',
+                                       'mixed_5b', 'repeat', 'repeat_1',
+                                       'mixed_7a', 'repeat_2', 'block8']},
+    'convnext_tiny': {"backend": "timm",
                       "blocks": ['stages.0.blocks.0', 'stages.0.blocks.1', 'stages.0.blocks.2',
                                  'stages.1.blocks.0', 'stages.1.blocks.1', 'stages.1.blocks.2',
                                  'stages.2.blocks.0', 'stages.2.blocks.1', 'stages.2.blocks.2',
                                  'stages.2.blocks.3', 'stages.2.blocks.4', 'stages.2.blocks.5',
                                  'stages.2.blocks.6', 'stages.2.blocks.7', 'stages.2.blocks.8',
                                  'stages.3.blocks.0', 'stages.3.blocks.1', 'stages.3.blocks.2']},
-    'convnext_small': {"backend": "pytorch",
+    'convnext_small': {"backend": "timm",
                        "blocks": ['stages.0.blocks.0', 'stages.0.blocks.1', 'stages.0.blocks.2',
                                   'stages.1.blocks.0', 'stages.1.blocks.1', 'stages.1.blocks.2',
                                   'stages.2.blocks.0', 'stages.2.blocks.1', 'stages.2.blocks.2',
@@ -333,7 +351,7 @@ MODEL_ZOO = {
                                   'stages.2.blocks.20', 'stages.2.blocks.21', 'stages.2.blocks.22',
                                   'stages.2.blocks.23', 'stages.2.blocks.24', 'stages.2.blocks.25',
                                   'stages.2.blocks.26', 'stages.3.blocks.1', 'stages.3.blocks.2']},
-    'convnext_base': {"backend": "pytorch",
+    'convnext_base': {"backend": "timm",
                       "blocks": ['stages.0.blocks.0', 'stages.0.blocks.1', 'stages.0.blocks.2',
                                  'stages.1.blocks.0', 'stages.1.blocks.1', 'stages.1.blocks.2',
                                  'stages.2.blocks.0', 'stages.2.blocks.1', 'stages.2.blocks.2',
@@ -346,7 +364,7 @@ MODEL_ZOO = {
                                  'stages.2.blocks.21', 'stages.2.blocks.22', 'stages.2.blocks.23',
                                  'stages.2.blocks.24', 'stages.2.blocks.25', 'stages.2.blocks.26',
                                  'stages.3.blocks.0', 'stages.3.blocks.1', 'stages.3.blocks.2']},
-    'convnext_large': {"backend": "pytorch",
+    'convnext_large': {"backend": "timm",
                        "blocks": ['stages.0.blocks.0', 'stages.0.blocks.1', 'stages.0.blocks.2',
                                   'stages.1.blocks.0', 'stages.1.blocks.1', 'stages.1.blocks.2',
                                   'stages.2.blocks.0', 'stages.2.blocks.1', 'stages.2.blocks.2',
@@ -359,7 +377,7 @@ MODEL_ZOO = {
                                   'stages.2.blocks.21', 'stages.2.blocks.22', 'stages.2.blocks.23',
                                   'stages.2.blocks.24', 'stages.2.blocks.25', 'stages.2.blocks.26',
                                   'stages.3.blocks.0', 'stages.3.blocks.1', 'stages.3.blocks.2']},
-    'repvgg_b3': {"backend": "pytorch",
+    'repvgg_b3': {"backend": "timm",
                   "blocks": ['stages.0.0', 'stages.0.1', 'stages.0.2', 'stages.0.3',
                              'stages.1.0', 'stages.1.1', 'stages.1.2', 'stages.1.3',
                              'stages.1.4', 'stages.1.5', 'stages.2.0', 'stages.2.1',
@@ -367,7 +385,7 @@ MODEL_ZOO = {
                              'stages.2.6', 'stages.2.7', 'stages.2.8', 'stages.2.9',
                              'stages.2.10', 'stages.2.11', 'stages.2.12', 'stages.2.13',
                              'stages.2.14', 'stages.2.15', 'stages.3.0']},
-    'repvgg_b2': {"backend": "pytorch",
+    'repvgg_b2': {"backend": "timm",
                   "blocks": ['stages.0.0', 'stages.0.1', 'stages.0.2', 'stages.0.3',
                              'stages.1.0', 'stages.1.1', 'stages.1.2', 'stages.1.3',
                              'stages.1.4', 'stages.1.5', 'stages.2.0', 'stages.2.1',
@@ -375,7 +393,7 @@ MODEL_ZOO = {
                              'stages.2.6', 'stages.2.7', 'stages.2.8', 'stages.2.9',
                              'stages.2.10', 'stages.2.11', 'stages.2.12', 'stages.2.13',
                              'stages.2.14', 'stages.2.15', 'stages.3.0']},
-    'repvgg_b1': {"backend": "pytorch",
+    'repvgg_b1': {"backend": "timm",
                   "blocks": ['stages.0.0', 'stages.0.1', 'stages.0.2', 'stages.0.3',
                              'stages.1.0', 'stages.1.1', 'stages.1.2', 'stages.1.3',
                              'stages.1.4', 'stages.1.5', 'stages.2.0', 'stages.2.1',
@@ -383,7 +401,7 @@ MODEL_ZOO = {
                              'stages.2.6', 'stages.2.7', 'stages.2.8', 'stages.2.9',
                              'stages.2.10', 'stages.2.11', 'stages.2.12', 'stages.2.13',
                              'stages.2.14', 'stages.2.15', 'stages.3.0']},
-    'repvgg_b0': {"backend": "pytorch",
+    'repvgg_b0': {"backend": "timm",
                   "blocks": ['stages.0.0', 'stages.0.1', 'stages.0.2', 'stages.0.3',
                              'stages.1.0', 'stages.1.1', 'stages.1.2', 'stages.1.3',
                              'stages.1.4', 'stages.1.5', 'stages.2.0', 'stages.2.1',
@@ -394,22 +412,34 @@ MODEL_ZOO = {
 }
 
 
+def listify(block_spec):
+    if isinstance(block_spec, str):
+        block_spec = [block_spec]
+    elif isinstance(block_spec, tuple):
+        block_spec = list(block_spec)
+    elif isinstance(block_spec, list):
+        block_spec = block_spec
+    else:
+        raise TypeError('Block spec should be a string or tuple or list.')
+    return block_spec
+
+
 def load_subnet(model_name, block_input, block_output, backend="pytorch", pretrained=True, ckp_path=None):
-    # print(model_name, block_input, block_output, backend)
+    block_input = listify(block_input)
+    block_output = listify(block_output)
+
     if backend == 'timm':
         if ckp_path is not None:
-            backbone = timm.create_model(
-                model_name, pretrained=False, scriptable=True)
+            backbone = timm.create_model(model_name, pretrained=False, scriptable=True)
             if os.path.isfile(ckp_path):
                 state_dict = torch.load(ckp_path, map_location='cpu')
                 # print(f'Loading checkpoint from {ckp_path}')
                 missing_keys = backbone.load_state_dict(state_dict, strict=False)
                 # print(missing_keys)
             else:
-                print(f'{ckp_path} does not exists')
+                raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
-            backbone = timm.create_model(
-                model_name, pretrained=pretrained, scriptable=True)
+            backbone = timm.create_model(model_name, pretrained=pretrained, scriptable=True)
     elif backend == 'pytorch':
         if ckp_path is not None:
             backbone = getattr(models, model_name)(pretrained=False)
@@ -419,33 +449,10 @@ def load_subnet(model_name, block_input, block_output, backend="pytorch", pretra
                 missing_keys = backbone.load_state_dict(state_dict, strict=False)
                 # print(missing_keys)
             else:
-                print(f'{ckp_path} does not exists')
+                raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
             backbone = getattr(models, model_name)(pretrained=pretrained)
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
 
-    if isinstance(block_input, str):
-        block_input = [block_input]
-    elif isinstance(block_input, tuple):
-        block_input = list(block_input)
-    elif isinstance(block_input, list):
-        block_input = block_input
-    else:
-        raise TypeError('Block input should be a string or tuple or list')
-
-    if isinstance(block_output, str):
-        block_output = [block_output]
-    elif isinstance(block_output, tuple):
-        block_output = list(block_output)
-    elif isinstance(block_output, list):
-        block_output = block_output
-    else:
-        raise TypeError('Block output should be a string or tuple or list')
-
-    if model_name.startswith('swin_') or model_name.startswith('vit'):
-        subnet = create_sub_network_transformer(
-            backbone, model_name, block_input, block_output)
-    else:
-        subnet = create_sub_network(backbone, block_input, block_output)
-    return subnet
+    return create_sub_network(backbone, block_input, block_output)

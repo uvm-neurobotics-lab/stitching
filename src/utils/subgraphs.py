@@ -562,6 +562,20 @@ def create_feature_extractor(
     return graph_module
 
 
+def get_placeholder_ancestor_of(node: torch.fx.Node):
+    """
+    Trace a node back to its root ancestor node, which could be itself if this is a root. Just returns the first one
+    found via depth-first search.
+    """
+    if len(node.all_input_nodes) == 0 and node.op == "placeholder":
+        return node  # node is a root
+    for a in node.all_input_nodes:
+        root = get_placeholder_ancestor_of(a)
+        if root:
+            return root
+    return None  # no placeholder root; root must be an attribute or a constant
+
+
 def create_sub_network(
         model: nn.Module,
         input_nodes: Optional[Union[List[str], Dict[str, str]]] = None,
@@ -725,7 +739,7 @@ def create_sub_network(
 
         # Find nodes corresponding to input_nodes and mark them as new_input_nodes.
         nodes = [n for n in graph_module.graph.nodes]
-        new_input_nodes = []
+        new_input_nodes = []  # a list of (location to replace, node to replace)
         for n in nodes:
             module_qualname = tracer.node_to_qualname.get(n)
             if module_qualname is None:
@@ -737,27 +751,48 @@ def create_sub_network(
             for query in mode_input_nodes[mode]:
                 depth = query.count(".")
                 if ".".join(module_qualname.split(".")[: depth + 1]) == query:
-                    new_input_nodes.append(n)
-                    mode_input_nodes[mode].pop(query)
-                    break
+                    # This is the query node, OR A SUBNODE of the query. We don't necessarily want the first such
+                    # subnode. We want the first one that can be traced back to a placeholder node, RATHER than an
+                    # attribute or a constant. In other words, we want a descendant of the original graph input,
+                    # because we seek to sever the graph from its original input.
+                    # Furthermore, we require that only ONE of the inputs maps back to the beginning of the graph.
+                    if get_placeholder_ancestor_of(n):
+                        old_args = n.all_input_nodes
+                        if len(old_args) == 0:
+                            if n.op == "placeholder":
+                                # Replace this node itself.
+                                new_input_nodes.append((n, n))
+                            else:
+                                # get_placeholder_ancestor_of should never return a non-placeholder root.
+                                raise RuntimeError(f"Programming error. This should not happen. Node: '{n}'.")
+                        elif len(old_args) == 1:
+                            # Replace the only input.
+                            new_input_nodes.append((n, old_args[0]))
+                        else:
+                            # Multiple graph paths run into this node. We need to figure out which one to replace.
+                            # The one to replace is the one that can be traced back to a placeholder.
+                            reqd_inputs = [a for a in old_args if get_placeholder_ancestor_of(a) is not None]
+                            if len(reqd_inputs) == 1:
+                                new_input_nodes.append((n, reqd_inputs[0]))
+                            else:
+                                raise RuntimeError("Cannot use a node as input that requires more than one ancestor "
+                                                   f"input: Node '{n}' matching query '{query}' requires inputs: "
+                                                   f"{reqd_inputs}\n{graph_module.graph}")
+                        mode_input_nodes[mode].pop(query)
+                        break
 
-        # For each new input node, replace its input with a new "placeholder" input, which will become the new start
-        # of the graph.
+        # For each new input node, replace it with a new "placeholder", which will become the new start of the graph.
         node_order = {n: i for i, n in enumerate(graph_module.graph.nodes)}
         new_placeholders = []
-        for i, n in enumerate(new_input_nodes):
-            def is_after(user_node):
-                return node_order[n] <= node_order[user_node]
+        for i, (loc, to_replace) in enumerate(new_input_nodes):
+            def is_after_loc(user_node):
+                return node_order[loc] <= node_order[user_node]
 
-            with graph_module.graph.inserting_before(n):
+            with graph_module.graph.inserting_before(loc):
                 # WARNING: We need unique placeholder names. This is a hack in the hopes that similar names will be
                 # unlikely, rather than actually doing the work to unsure uniqueness.
                 new_placeholders.append(graph_module.graph.placeholder(f'subnet_input_{i + 1}'))
-            old_args = n.all_input_nodes
-            if len(old_args) > 1:
-                raise RuntimeError("Cannot use a node as input that requires more than one ancestor input: "
-                                   f"Node '{n}' requires inputs: {old_args}\n{graph_module.graph}")
-            old_args[0].replace_all_uses_with(new_placeholders[-1], is_after)
+                to_replace.replace_all_uses_with(new_placeholders[-1], is_after_loc)
 
         # Remove unused modules / parameters first.
         node_order = {n: i for i, n in enumerate(graph_module.graph.nodes)}
