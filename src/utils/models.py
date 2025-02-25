@@ -424,35 +424,46 @@ def listify(block_spec):
     return block_spec
 
 
-def load_subnet(model_name, block_input, block_output, backend="pytorch", pretrained=True, ckp_path=None):
-    block_input = listify(block_input)
-    block_output = listify(block_output)
-
+def load_model(model_name, backend, pretrained, ckp_path, verbose):
     if backend == 'timm':
         if ckp_path is not None:
             backbone = timm.create_model(model_name, pretrained=False, scriptable=True)
             if os.path.isfile(ckp_path):
+                if verbose:
+                    print(f'Loading checkpoint from: {ckp_path}')
                 state_dict = torch.load(ckp_path, map_location='cpu')
-                # print(f'Loading checkpoint from {ckp_path}')
                 missing_keys = backbone.load_state_dict(state_dict, strict=False)
-                # print(missing_keys)
+                if verbose:
+                    print(missing_keys)
             else:
                 raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
             backbone = timm.create_model(model_name, pretrained=pretrained, scriptable=True)
+
     elif backend == 'pytorch':
         if ckp_path is not None:
             backbone = getattr(models, model_name)(pretrained=False)
             if os.path.isfile(ckp_path):
+                if verbose:
+                    print(f'Loading checkpoint from: {ckp_path}')
                 state_dict = torch.load(ckp_path, map_location='cpu')
-                # print(f'Loading checkpoint from {ckp_path}')
                 missing_keys = backbone.load_state_dict(state_dict, strict=False)
-                # print(missing_keys)
+                if verbose:
+                    print(missing_keys)
             else:
                 raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
             backbone = getattr(models, model_name)(pretrained=pretrained)
+
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
 
+    return backbone
+
+
+def load_subnet(model_name, block_input, block_output, backend="pytorch", pretrained=True, ckp_path=None,
+                verbose=False):
+    block_input = listify(block_input)
+    block_output = listify(block_output)
+    backbone = load_model(model_name, backend, pretrained, ckp_path, verbose)
     return create_sub_network(backbone, block_input, block_output)
