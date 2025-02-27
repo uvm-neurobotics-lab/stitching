@@ -1,0 +1,44 @@
+#
+# Test config for stitching two different chunks of a MobileNetV3.
+#
+# First chunk: roughly the first half of MobileNetV3-Large, trained to 77.9% top-1 accuracy w/ an improved formula.
+# Second chunk: roughly the second half of MobileNetV3-Large, trained to 75.8% top-1 accuracy w/ the original formula.
+#
+# Stitching this seeks to produce a similar result to those from Bansal et al. "Revisiting Model Stitching to Compare
+# Neural Representations". 2021. https://arxiv.org/abs/2106.07682
+# In other words, we expect to meet or exceed the performance of 75.8% on ImageNet-1k.
+#
+
+# Architecture to assemble. A series of blocks with adapters in between each.
+blocks:
+  - backend: "timm"
+    model_name: "mobilenetv3_large_100.miil_in21k_ft_in1k"
+    block_input: "x"
+    block_output: "blocks.3"
+  - backend: "timm"
+    model_name: "mobilenetv3_large_100.ra_in1k"
+    block_input: "blocks.3"
+    block_output: "classifier.linear"
+adapters:
+  - mode: "cnn2cnn"
+    num_conv: 1
+    input_channel: 80
+    output_channel: 80
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 2
+
+  # Optimization
+  batch_size: 256
+  optimizer: Adam
+  lr: 1.0e-3
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0

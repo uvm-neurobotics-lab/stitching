@@ -10,25 +10,29 @@ class DeRyAdapter(nn.Module):
     This is the adapter as it appeared in Deep Model Reassembly (DeRy).
     From: https://github.com/Adamdad/DeRy/blob/main/mmcls_addon/models/backbones/dery.py
     """
-    def __init__(self, input_channel, output_channel, num_fc=0, num_conv=1, mode='cnn2cnn', stride=1):
+    def __init__(self, input_channel, output_channel, mode='cnn2cnn', num_fc=0, num_conv=1, stride=1, norm=True,
+                 nonlinearity=True):
         super().__init__()
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
             raise ValueError('Must supply only num_fc or num_conv.')
         assert mode in ['cnn2cnn', 'cnn2vit', 'vit2cnn', 'vit2vit'], 'mode is not recognized'
+        self.mode = mode
 
         layers = []
-        self.mode = mode
         if num_fc > 0:
-            layers.append(nn.LayerNorm(input_channel))
+            if norm:
+                layers.append(nn.LayerNorm(input_channel))
             for i in range(num_fc):
                 if i == 0:
                     layers.append(nn.Linear(input_channel, output_channel, bias=False))
                 else:
                     layers.append(nn.Linear(output_channel, output_channel, bias=False))
-            layers.append(nn.LeakyReLU(0.1, inplace=True))
+            if nonlinearity:
+                layers.append(nn.LeakyReLU(0.1, inplace=True))
 
         elif num_conv > 0:
-            layers.append(nn.BatchNorm2d(input_channel))
+            if norm:
+                layers.append(nn.BatchNorm2d(input_channel))
             for i in range(num_conv):
                 if i == 0:
                     layers.append(nn.Conv2d(input_channel, output_channel, kernel_size=stride, stride=stride, padding=0,
@@ -36,7 +40,8 @@ class DeRyAdapter(nn.Module):
                 else:
                     layers.append(nn.Conv2d(output_channel, output_channel, kernel_size=1, stride=1, padding=0,
                                             bias=False))
-            layers.append(nn.LeakyReLU(0.1, inplace=True))
+            if nonlinearity:
+                layers.append(nn.LeakyReLU(0.1, inplace=True))
 
         self.adapter = nn.Sequential(*layers)
 

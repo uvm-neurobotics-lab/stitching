@@ -515,10 +515,10 @@ def test_vit_one_block_subnet():
 #     import math
 #     from utils.subgraphs import _get_leaf_modules_for_ops, NodePathTracer
 #     # model = torchvision.models.resnext50_32x4d()
-#     model = timm.create_model("vit_tiny_patch16_224")
+#     model = timm.create_model("mobilenetv3_large_100")
 #     tracer = NodePathTracer(autowrap_modules=(math, torchvision.ops), leaf_modules=_get_leaf_modules_for_ops())
 #     graph = tracer.trace(model)
 #     print()
 #     print(graph)
 #     # graph.print_tabular()
-#     # print("\n".join([str(x) for x in tracer.node_to_qualname.items()]))
+#     print("\n".join([str(x) for x in tracer.node_to_qualname.items()]))
