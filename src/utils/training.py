@@ -21,7 +21,6 @@ from utils import ensure_config_param, get_leaf_modules, load_yaml, make_pretty,
 from utils.logging import eval_mode, overall_metrics, StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
                                 optimizer_from_config, scheduler_from_config)
-from utils.probes import ProbedModule
 
 
 class Metric(Enum):
@@ -322,72 +321,6 @@ def as_training_metrics(metrics):
     return newmetrics
 
 
-def check_probe_train_config(config: dict):
-    """ Delegates to `check_train_config()` but also checks probe-specific params. """
-
-    def of_type(types):
-        def test_fn(val):
-            return val is None or isinstance(val, types)
-
-        return test_fn
-
-    check_train_config(config)
-    ensure_config_param(config, ["train_config", "probes"], of_type(Sequence))
-    ensure_config_param(config, ["train_config", "probes"],
-                        lambda probes: len(probes) > 0 and np.all([isinstance(p, str) for p in probes]))
-    ensure_config_param(config, ["train_config", "num_probe_outputs"], of_type(int), required=False)
-    ensure_config_param(config, ["train_config", "checkpoint"], of_type(int), required=False)
-
-
-def train_probes(archs_to_probe, train_loader, val_loaders, config, device="cuda"):
-    train_config = config["train_config"]
-    # Get test inputs for inspecting models: make it a batch of size 1.
-    images, _ = next(iter(train_loader))
-    images = images[0:1].to(device)
-    # A place to store results.
-    probe_train_results = {}
-
-    # For all models...
-    n_total = len(archs_to_probe)
-    for i, (archkey, arch) in enumerate(archs_to_probe.items()):
-        logging.info(f"-------- ({i + 1}/{n_total}) BEGIN PROBING FOR MODEL: {arch}")
-
-        # Load the model.
-        ta = arch.get_trainable_arch(train_config["dataset"]).to(device)
-        model_fname = filesafe_model_name(ta)
-        if train_config.get("checkpoint") is not None:
-            saved_model_path = config["save_dir"] / f"model-{model_fname}-{train_config['checkpoint']}.pt"
-            logging.info(f"Loading checkpoint: {saved_model_path}")
-            ta.load_state_dict(torch.load(saved_model_path, map_location=device))
-
-        # Hook up model probes.
-        pm = ProbedModule(ta, images, train_config["num_probe_outputs"], train_config["probes"], frozen_projection=True)
-
-        # Finally, train the probes!
-        probe_train_results[archkey] = train_probes_given_model(pm, pm.probes, train_config["probes"], train_loader,
-                                                                val_loaders, config, device)
-
-    # Post-process into a single dataframe.
-    dfs = list(probe_train_results.values())
-    names = [str(archs_to_probe[k]) for k in probe_train_results]
-    result_df = pd.concat(dfs, keys=names, names=["Arch", "Probe Num", "Step"])
-    return result_df
-
-
-def train_probes_given_model(pm, probes, probes_to_train, train_loader, val_loaders, config, device="cuda"):
-    # Sanity check: ensure the desired probes exist.
-    missing = [n for n in probes_to_train if n not in probes]
-    if missing:
-        raise RuntimeError(f"Unable to find these probes in the module hierarchy: {missing}")
-
-    # Run all data points through a forward pass so we can cache the activations of the frozen model. These will
-    # serve as training inputs for the probes.
-    loaders = {"Train": train_loader, **{k.capitalize(): v for k, v in val_loaders.items()}}
-    cached_inputs, cached_labels = cache_probe_inputs(pm, probes, loaders, device)
-
-    return train_probes_given_activations(probes, probes_to_train, cached_inputs, cached_labels, config, device)
-
-
 def print_memory_stats(rank=None):
     import psutil
     import subprocess
@@ -476,51 +409,90 @@ def cache_probe_inputs(pm, probes, loaders, device, show_progress=False, print_f
     return cached_inputs, cached_labels
 
 
-def train_probes_given_activations(pmap, probes_to_train, cached_activations, cached_labels, config, device):
-    """ Trains probes given output from `cache_probe_inputs()`. """
-    def get_data_loaders_for_probe(pname, batch_size):
-        psets = {s: (torch.concat(cached_activations[pname][s]), torch.concat(cached_labels[s]))
-                 for s in cached_labels}
-        return make_activation_data_loaders(psets, batch_size)
+def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
+    model.train()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
+    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
 
-    return train_probes_given_data_loaders(pmap, probes_to_train, get_data_loaders_for_probe, config, device)
+    header = f"Epoch: [{epoch}]"
+    for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+        start_time = time.time()
+        image, target = image.to(device), target.to(device)
+        with torch.cuda.amp.autocast(enabled=scaler is not None):
+            output = model(image)
+            loss = criterion(output, target)
 
-
-def train_probes_given_data_loaders(pmap, probes_to_train, make_probe_data_loaders_fn, config, device):
-    """
-    This is a rather awkward interface, because it expects a function which returns cached activations given only a
-    probe name. But this is the most flexible way to separate training responsibility from data loading responsibility.
-    """
-    records = []
-    for pdex, pname in enumerate(probes_to_train):
-        logging.info(f"-------- ({pdex + 1}/{len(probes_to_train)}) FITTING PROBE: {pname}")
-
-        # Collect the inputs/outputs of this probe into a new dataset and loader.
-        probe = pmap[pname]
-        train_loader, val_loaders = make_probe_data_loaders_fn(pname, config["train_config"]["batch_size"])
-
-        # Run training.
-        if config["train_config"].get("train_method") == "lstsq":
-            metric_map = train_by_lstsq(probe.unfrozen_part, train_loader, val_loaders, config, device)
+        optimizer.zero_grad()
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            if args.clip_grad_norm is not None:
+                # we should unscale the gradients of optimizer's assigned params if do gradient clipping
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+            scaler.step(optimizer)
+            scaler.update()
         else:
-            metric_map = train(probe.unfrozen_part, train_loader, val_loaders, config, device)
+            loss.backward()
+            if args.clip_grad_norm is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+            optimizer.step()
 
-        # Allow for a missing 0th step/epoch. If missing, prepend a blank record for the 0th step of the 0th epoch.
-        if 0 not in metric_map:
-            records.append({"Probe Num": pdex + 1, "Probe Name": pname, "Step": 0, "Epoch": 0})
-        for step, record in metric_map.items():
-            records.append({"Probe Num": pdex + 1, "Probe Name": pname, "Step": step, **record})
+        if model_ema and i % args.model_ema_steps == 0:
+            model_ema.update_parameters(model)
+            if epoch < args.lr_warmup_epochs:
+                # Reset ema buffer to keep copying weights during warmup period
+                model_ema.n_averaged.fill_(0)
 
-    return pd.DataFrame.from_records(records, index=["Probe Num", "Step"])
+        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+        batch_size = image.shape[0]
+        metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
+        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+        metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
 
 
-def make_activation_data_loaders(cache_pairs, batch_size):
-    """ Take a map of split -> (inputs, labels), where `inputs` and `labels` are tensors, and return DataLoaders. """
-    psets = {k: TensorDataset(*v) for k, v in cache_pairs.items()}
-    ploaders = {s: DataLoader(dset, batch_size) for s, dset in psets.items()}
-    probe_train_loader = ploaders["Train"]
-    probe_val_loaders = {k: v for k, v in ploaders.items() if k != "Train"}
-    return probe_train_loader, probe_val_loaders
+def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
+    model.eval()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    header = f"Test: {log_suffix}"
+
+    num_processed_samples = 0
+    with torch.inference_mode():
+        for image, target in metric_logger.log_every(data_loader, print_freq, header):
+            image = image.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
+            output = model(image)
+            loss = criterion(output, target)
+
+            acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+            # FIXME need to take into account that the datasets
+            # could have been padded in distributed setup
+            batch_size = image.shape[0]
+            metric_logger.update(loss=loss.item())
+            metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+            metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+            num_processed_samples += batch_size
+    # gather the stats from all processes
+
+    num_processed_samples = utils.reduce_across_processes(num_processed_samples)
+    if (
+        hasattr(data_loader.dataset, "__len__")
+        and len(data_loader.dataset) != num_processed_samples
+        and torch.distributed.get_rank() == 0
+    ):
+        # See FIXME above
+        warnings.warn(
+            f"It looks like the dataset has {len(data_loader.dataset)} samples, but {num_processed_samples} "
+            "samples were used for the validation, which might bias the results. "
+            "Try adjusting the batch size and / or the world size. "
+            "Setting the world size to 1 is always a safe bet."
+        )
+
+    metric_logger.synchronize_between_processes()
+
+    print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
+    return metric_logger.acc1.global_avg
 
 
 def train(model: torch.nn.Module, train_loader, valid_loaders, config, device="cuda"):
@@ -621,76 +593,3 @@ def forward_pass(model, ims, labels, loss_fns):
         out = model(ims)
         losses = {name: loss_fn(out, labels) * weight for name, (loss_fn, weight) in loss_fns.items()}
     return out, losses, total_weight
-
-
-def train_by_lstsq(model: torch.nn.Module, train_loader, val_loaders, config, device="cuda"):
-    # Find the single linear layer to train. Assume it's the final leaf layer. Raise an error if it appears invalid.
-    _, linear_layer = get_leaf_modules(model)[-1]
-    if not isinstance(linear_layer, torch.nn.Linear):
-        raise RuntimeError(f"Expected to train a single linear layer, but model given was:\n{model}\n"
-                           f"and the last layer of the model was: {linear_layer}")
-    model.to(device)
-
-    # First, evaluate the model before fitting, if configured to do so.
-    metrics = {}
-    if config.get("checkpoint_initial_model", True):
-        metrics[0] = as_training_metrics(eval_model(model, train_loader, val_loaders, config, device, logging.info))
-        metrics[0]["Step"] = 0
-        metrics[0]["Epoch"] = 0
-
-    # Extract X, Y matrices from training data.
-    # TODO: Shortcut to skip this step if model is only a single layer.
-    logging.info(f"Assembling the least squares problem from {len(train_loader)} batches.")
-    cinputs = []
-    clabels = []
-    hook = linear_layer.register_forward_pre_hook(lambda mod, args: cinputs.append(args[0].detach().cpu()))
-    for ims, labels in train_loader:
-        model(ims.to(device))
-        clabels.append(labels.detach().cpu())
-    hook.remove()
-    xdata = torch.concat(cinputs)
-    ydata = torch.concat(clabels)
-
-    # Run least squares fitting.
-    logging.info(f"Running least squares fitting on a matrix of shape: {xdata.shape}.")
-    model.train()  # Does this matter?
-    fit_lstsq(linear_layer, xdata, ydata)
-
-    # Now evaluate the final model and record the metrics.
-    metrics[1] = as_training_metrics(eval_model(model, train_loader, val_loaders, config, device, logging.info))
-    metrics[1]["Step"] = 1
-    metrics[1]["Epoch"] = 1
-    logging.info("Result:")
-    for mname, value in metrics[1].items():
-        if "Top-1" in mname:
-            logging.info(f"    {mname: >21} = {value:>5.3f}")
-    return metrics
-
-
-def fit_lstsq(fc, xdata, ydata):
-    assert len(xdata) == len(ydata)
-
-    # Check that our samples match the linear layer size.
-    if len(xdata.shape) != 2 or xdata.shape[1] != fc.in_features:
-        raise RuntimeError(f"Expected the init sample set to be a batch of {fc.in_features}-length vectors.")
-
-    # Now reinit.
-    ys = onehottify(ydata, fc.out_features)
-    device = fc.weight.device
-    dtype = fc.weight.dtype
-
-    xs = xdata.detach().cpu().numpy()
-    bias = np.ones([xs.shape[0], 1])
-    inp = np.concatenate([xs, bias], axis=1)  # add bias
-    W, residuals, rank, s = np.linalg.lstsq(inp, ys, rcond=-1)
-    W, b = W[:-1], W[-1]  # retrieve bias
-
-    # insert W,b into Linear layer
-    fc.weight.data = torch.from_numpy(W.T).to(device).type(dtype)
-    fc.bias.data = torch.from_numpy(b).to(device).type(dtype)
-
-
-def onehottify(labels, num_total_classes):
-    onehots = torch.zeros((len(labels), num_total_classes))
-    onehots[torch.arange(len(labels)), labels] = 1
-    return onehots.detach().cpu().numpy()
