@@ -5,8 +5,24 @@ from collections import OrderedDict
 
 import torch.nn as nn
 
+import utils
 from adapters import DeRyAdapter
 from utils.models import MODEL_ZOO, load_subnet
+
+
+class ClassifierHead(nn.Module):
+
+    def __init__(self, input_shape, num_classes):
+        super().__init__()
+        if len(input_shape) != 1:
+            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape}.")
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.linear = nn.Linear(input_shape[0], num_classes)
+
+    def forward(self, x):
+        x = self.pool(x)
+        x = x.view(x.shape[0], -1)
+        return self.linear(x)
 
 
 class Assembly(nn.Module):
@@ -25,12 +41,14 @@ class Assembly(nn.Module):
             self,
             block_list,
             adapter_list=None,
+            use_head=False,
             use_base=False,
             base_adapter=None,
             block_fixed=True,
             all_fixed=False,
             base_channels=64,
-            in_channels=3,
+            input_shape=None,
+            num_classes=None,
     ):
         super().__init__()
         if not block_list:
@@ -39,8 +57,10 @@ class Assembly(nn.Module):
             raise ValueError("Number of adapters must be one fewer than the number of blocks.")
 
         if use_base:
+            if not input_shape:
+                raise ValueError("To use a new base block, you must specify the expected input_shape.")
             self.base = nn.Sequential(OrderedDict([
-                ("conv0", nn.Conv2d(in_channels, base_channels, kernel_size=7, stride=2, padding=3, bias=False)),
+                ("conv0", nn.Conv2d(input_shape[0], base_channels, kernel_size=7, stride=2, padding=3, bias=False)),
                 ("norm0", nn.BatchNorm2d(base_channels)),
                 ("relu0", nn.ReLU(inplace=True)),
                 ("pool0", nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
@@ -70,6 +90,14 @@ class Assembly(nn.Module):
         else:
             self.base_adapter = None
 
+        if use_head:
+            if not (input_shape and num_classes):
+                raise ValueError("To use a classifier head, you must specify the expected input and output shapes.")
+            output_shape = utils.calculate_output_shape(self.trunk_forward, input_shape)
+            self.head = ClassifierHead(output_shape, num_classes)
+        else:
+            self.base = None
+
         if block_fixed:
             for param in self.blocks.parameters():
                 param.requires_grad = False
@@ -78,7 +106,7 @@ class Assembly(nn.Module):
             for param in self.parameters():
                 param.requires_grad = False
 
-    def forward(self, x):
+    def trunk_forward(self, x):
         if self.base:
             x = self.base(x)
         out_shape = (x.shape[2], x.shape[3])
@@ -99,4 +127,10 @@ class Assembly(nn.Module):
             elif self.block_types[i] == "vit":
                 x = block(x)
 
+        return x
+
+    def forward(self, x):
+        x = self.trunk_forward(x)
+        if self.head:
+            x = self.head(x)
         return x

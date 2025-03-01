@@ -275,7 +275,7 @@ def get_device(parser, parsed_args):
         device = parsed_args.get("device")
 
     logging.info(f"Using device: {device}")
-    return device
+    return torch.device(device)
 
 
 def add_seed_arg(parser, default_seed=None):

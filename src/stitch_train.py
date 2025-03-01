@@ -9,8 +9,16 @@ import logging
 import sys
 from pathlib import Path
 
+import torch
+import torchvision
+import yaml
+
 import utils.argparsing as argutils
 import utils.datasets as datasets
+import utils.distributed as dist
+import utils.training as training
+from assembly import Assembly
+from utils import ensure_config_param, make_pretty
 
 
 def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
@@ -46,6 +54,39 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     return parser
 
 
+def validate_config(config):
+    """
+    Prints and validates the given training config. Throws an exception in the case of invalid or missing required
+    values. Non-required missing values are filled in with their defaults; note that this modifies the config in-place.
+
+    Args:
+        config: A config dict which describes the hyperparams, dataset, etc. for training an architecture.
+    Returns:
+        The config after validation (the same instance as was passed in).
+    """
+    # Output config for reference. Do it before checking config to assist debugging.
+    logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
+
+    def of_type(types):
+        def test_fn(val):
+            return isinstance(val, types)
+
+        return test_fn
+
+    # First check values for constructing the model.
+    ensure_config_param(config, "blocks", of_type(list))
+    ensure_config_param(config, "adapters", of_type(list))
+    ensure_config_param(config, "use_base", of_type(bool), dflt=False)
+    ensure_config_param(config, "use_head", of_type(bool), dflt=False)
+    ensure_config_param(config, "frozen", of_type(bool), dflt=True)
+    ensure_config_param(config, "base_adapter", of_type(dict), required=False)
+
+    # Now check values related to training the model.
+    training.check_train_config(config)
+
+    return config
+
+
 def prep_config(parser, args):
     """ Process command line arguments to produce a full training config. May also edit the arguments. """
     # If we're doing a smoke test, then we need to modify the verbosity before configuring the logger.
@@ -55,14 +96,14 @@ def prep_config(parser, args):
     argutils.configure_logging(args, level=logging.INFO)
 
     # This list governs which _top-level_ args can be overridden from the command line.
-    config = argutils.load_config_from_args(parser, args, ["arch", "data_path", "save_checkpoints", "eval_checkpoints",
+    config = argutils.load_config_from_args(parser, args, ["data_path", "save_checkpoints", "eval_checkpoints",
                                                            "device", "id", "project", "entity", "group", "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
     # This list governs which _training_ args can be overridden from the command line.
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
-                                                                 ["benchmark", "dataset", "seed"])
+                                                                 ["dataset", "seed"])
 
     # Conduct a quick test.
     if args.smoke_test:
@@ -72,39 +113,30 @@ def prep_config(parser, args):
         config["train_config"]["max_steps"] = 1
         config["train_config"]["epochs"] = 1
 
-    return config
+    return validate_config(config)
 
 
 def setup_and_train(parser, config):
-    """ Setup W&B, load data, and commence training. """
+    """ Setup distributed processing, setup W&B, load data, load model, and commence training. """
+    dist.init_distributed_mode(config)
+
     device = argutils.get_device(parser, config)
     argutils.set_seed(config["train_config"]["seed"])
     argutils.prepare_wandb(config)
-    train_data, test_data, num_classes = datasets.load_dataset_from_config(config)
 
-    logging.info("Commencing training.")
-    arch = benchmark.from_string(config["arch"])
-    benchmark.train_and_store(arch)
-    logging.info("Training complete.")
+    logging.info("Loading dataset.")
+    train_data, test_data, input_shape, num_classes = datasets.load_dataset_from_config(config)
+
+    logging.info("Constructing model.")
+    model = Assembly(config["blocks"], config["adapters"], use_head=config.get("use_head"),
+                     use_base=config.get("use_base"), base_adapter=config.get("base_adapter"),
+                     all_fixed=config.get("frozen", True), input_shape=input_shape, num_classes=num_classes)
+    model.to(device)
+
+    train(config, model, train_data, test_data, device)
 
 
-def main(args):
-    if args.output_dir:
-        utils.mkdir(args.output_dir)
-
-    utils.init_distributed_mode(args)
-    print(args)
-
-    device = torch.device(args.device)
-
-    if args.use_deterministic_algorithms:
-        torch.backends.cudnn.benchmark = False
-        torch.use_deterministic_algorithms(True)
-    else:
-        torch.backends.cudnn.benchmark = True
-
-    train_dir = os.path.join(args.data_path, "train")
-    val_dir = os.path.join(args.data_path, "val")
+def train(config, model, train_data, test_data, device):
     dataset, dataset_test, train_sampler, test_sampler = load_data(train_dir, val_dir, args)
 
     num_classes = len(dataset.classes)
@@ -130,10 +162,6 @@ def main(args):
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, batch_size=args.batch_size, sampler=test_sampler, num_workers=args.workers, pin_memory=True
     )
-
-    print("Creating model")
-    model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
-    model.to(device)
 
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -247,7 +275,7 @@ def main(args):
             evaluate(model, criterion, data_loader_test, device=device)
         return
 
-    print("Start training")
+    logging.info("Start training")
     start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
@@ -274,7 +302,7 @@ def main(args):
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print(f"Training time {total_time_str}")
+    logging.info(f"Training time {total_time_str}")
 
 
 def main(argv=None):
@@ -306,7 +334,7 @@ def main(argv=None):
     args.distributed = args.world_size > 1 or args.ddp
 
     ngpus_per_node = torch.cuda.device_count()
-    print(f"Found {ngpus_per_node} GPUs.")
+    logging.info(f"Found {ngpus_per_node} GPUs.")
     if args.ddp:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
@@ -345,7 +373,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     rank_text = "." if args.rank == -1 else f" in process {args.rank}."
     if args.gpu is not None:
-        print(f"Using GPU {args.gpu}" + rank_text)
+        logging.info(f"Using GPU {args.gpu}" + rank_text)
 
     # Create the datasets and loaders.
     train_data, test_data, num_classes = make_datasets(args.dataset, args.data_path, args.batch_size * ngpus_per_node,
@@ -358,7 +386,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train_sampler = None
         test_sampler = None
 
-    print(f"Using {args.workers} workers for data loading" + rank_text)
+    logging.info(f"Using {args.workers} workers for data loading" + rank_text)
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=train_sampler is None,
                               sampler=train_sampler, num_workers=args.workers, pin_memory=False,
                               persistent_workers=args.workers > 1)
@@ -366,7 +394,7 @@ def main_worker(gpu, ngpus_per_node, args):
                              num_workers=args.workers, pin_memory=False, persistent_workers=args.workers > 1)
 
     # Create model.
-    print(f"Constructing {'pre-trained ' if args.pretrained else ''}'{args.arch}'" + rank_text)
+    logging.info(f"Constructing {'pre-trained ' if args.pretrained else ''}'{args.arch}'" + rank_text)
     orig_model = models.__dict__[args.arch](pretrained=args.pretrained)
 
     # Wrap in ProbedModule.
@@ -379,9 +407,9 @@ def main_worker(gpu, ngpus_per_node, args):
     # TODO: Since we're not doing any backward(), I'm not sure we need to wrap the model in DataParallel structures.
     model = pm
     if not torch.cuda.is_available():
-        print("Using CPU; this will be slow.")
+        logging.info("Using CPU; this will be slow.")
     elif args.distributed:
-        print("Using DistributedDataParallel" + rank_text)
+        logging.info("Using DistributedDataParallel" + rank_text)
         # For multiprocessing distributed, DistributedDataParallel constructor should always set the single device
         # scope, otherwise, DistributedDataParallel will use all available devices.
         if args.gpu is not None:
@@ -396,7 +424,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.cuda.set_device(args.gpu)
         model = model.cuda(args.gpu)
     else:
-        print("Using DataParallel" + rank_text)
+        logging.info("Using DataParallel" + rank_text)
         # DataParallel will divide and allocate batch_size to all available GPUs.
         if args.arch.startswith("alexnet") or args.arch.startswith("vgg"):
             model.features = torch.nn.DataParallel(model.features)
@@ -436,9 +464,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 dest_file = activation_cache_file(args.data_path, args.dataset, args.arch, args.pretrained, pname)
             dest_file.parent.mkdir(parents=True, exist_ok=True)
 
-            print(f"Saving activations: {dest_file}")
+            logging.info(f"Saving activations: {dest_file}")
             for split, (inputs, labels) in psets.items():
-                print(f"    {split}: inputs = {inputs.shape} labels = {labels.shape}")
+                logging.info(f"    {split}: inputs = {inputs.shape} labels = {labels.shape}")
             with open(dest_file, "wb") as f:
                 pickle.dump(psets, f)
 

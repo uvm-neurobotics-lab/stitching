@@ -5,7 +5,7 @@ import os
 
 import timm
 import torch
-from torchvision import models
+import torchvision
 
 from .subgraphs import create_sub_network
 
@@ -491,7 +491,7 @@ def load_model(model_name, backend, pretrained, ckp_path, verbose):
 
     elif backend == 'pytorch':
         if ckp_path is not None:
-            backbone = getattr(models, model_name)(pretrained=False)
+            backbone = torchvision.models.get_model(model_name, pretrained=False)
             if os.path.isfile(ckp_path):
                 if verbose:
                     print(f'Loading checkpoint from: {ckp_path}')
@@ -502,7 +502,7 @@ def load_model(model_name, backend, pretrained, ckp_path, verbose):
             else:
                 raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
-            backbone = getattr(models, model_name)(pretrained=pretrained)
+            backbone = torchvision.models.get_model(model_name, pretrained=pretrained)
 
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")

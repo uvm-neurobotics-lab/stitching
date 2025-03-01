@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Tuple, Union
 
 import numpy as np
+import torch
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from torch.utils.data import Dataset, Subset
@@ -55,15 +56,15 @@ def _make_datasets(name, data_root):
     name = name.lower()
     if name == "cifar10" or name == "cifar100":
         num_classes = 100 if name == "cifar100" else 10
-        return make_cifar(name, "train", data_root), make_cifar(name, "val", data_root), num_classes
+        return make_cifar(name, "train", data_root), make_cifar(name, "val", data_root), (3, 224, 224), num_classes
     elif name == "imagenet" or name == "imagenet-1k":
-        return make_imagenet("train", data_root), make_imagenet("val", data_root), 1000
+        return make_imagenet("train", data_root), make_imagenet("val", data_root), (3, 224, 224), 1000
     else:
         raise ValueError(f"Unrecognized dataset: {name}")
 
 
 def make_datasets(name: str, data_root: Union[str, PathLike], batch_size: int = None,
-                  max_batches: int = None) -> Tuple[Dataset, Dataset, int]:
+                  max_batches: int = None) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
     """
     Construct specified classification dataset objects. Optionally select a random subset of each dataset of size
     (batch_size * max_batches).
@@ -75,9 +76,10 @@ def make_datasets(name: str, data_root: Union[str, PathLike], batch_size: int = 
     :return:
         train_data (torch.utils.data.Dataset): The training set.
         test_data (torch.utils.data.Dataset): The test set.
+        input_shape (torch.Size | tuple): The size of the images [C, H, W].
         num_classes (int): The number of classes for classification.
     """
-    train_data, test_data, num_classes = _make_datasets(name, data_root)
+    train_data, test_data, input_shape, num_classes = _make_datasets(name, data_root)
     if max_batches:
         if not batch_size:
             raise RuntimeError(f"Requested max {max_batches} batches, but batch size was missing ({batch_size}).")
@@ -85,9 +87,9 @@ def make_datasets(name: str, data_root: Union[str, PathLike], batch_size: int = 
         reduced_train_data = Subset(train_data, train_indices)
         test_indices = np.random.choice(len(test_data), size=batch_size * max_batches, replace=False)
         reduced_test_data = Subset(test_data, test_indices)
-        return reduced_train_data, reduced_test_data, num_classes
+        return reduced_train_data, reduced_test_data, input_shape, num_classes
     else:
-        return train_data, test_data, num_classes
+        return train_data, test_data, input_shape, num_classes
 
 
 def add_dataset_arg(parser, dflt_data_dir=Path("./data").resolve()):
@@ -101,7 +103,7 @@ def add_dataset_arg(parser, dflt_data_dir=Path("./data").resolve()):
     return parser
 
 
-def load_dataset_from_config(config) -> Tuple[Dataset, Dataset, int]:
+def load_dataset_from_config(config) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
     """
     Load datasets from config. Delegates to `make_datasets()`.
 
@@ -109,6 +111,7 @@ def load_dataset_from_config(config) -> Tuple[Dataset, Dataset, int]:
     :return:
         train_data (torch.utils.data.Dataset): The training set.
         test_data (torch.utils.data.Dataset): The test set.
+        input_shape (torch.Size | tuple): The size of the images [C, H, W].
         num_classes (int): The number of classes for classification.
     """
     return make_datasets(config["train_config"]["dataset"], config["data_path"],
