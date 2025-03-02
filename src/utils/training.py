@@ -163,10 +163,6 @@ def check_train_config(config: dict):
             raise RuntimeError(f'In position {i} of "metrics": {str(e)}')
 
 
-def get_cache_lock_object(save_dir):
-    return FileLock(save_dir.parent / (save_dir.name + ".lock"))
-
-
 def validate_config(config):
     """
     Prints and validates the given training config. Throws an exception in the case of invalid or missing required
@@ -181,64 +177,6 @@ def validate_config(config):
     logging.info("\n---- Train Config ----\n" + yaml.dump(make_pretty(config)) + "----------------------")
     check_train_config(config)
     return config
-
-
-def ensure_configs_match(config, config_dest):
-    other_config = load_yaml(config_dest)
-    if config != other_config:
-        raise RuntimeError("Config does not match the one on disk! Is this a hash collision?\n"
-                           f"Current config:\n{config}\n"
-                           f"Config on disk:\n{other_config}\n"
-                           f"Loaded from file: {config_dest}")
-
-
-def prep_cache_folder(config: dict, root_path: Path):
-    """
-    Uses the given training config to derive a unique storage location for this config and its corresponding artifacts,
-    unless the user has already provided one through the "save_dir" config param. If a new directory is derived, then
-    the config will be modified with a new "save_dir" param. Saves the config in the resulting folder.
-
-    Args:
-        config: A config dict which describes the hyperparams, dataset, etc. for training an architecture.
-        root_path: The directory under which all results should be stored. A subdirectory under this one will be
-            determined by a unique hash of the config.
-    Returns:
-        `FileLock`: A lock object to synchronize reads/writes to the cache, as given by `get_cache_lock_object()`.
-    """
-    # Get a unique hash for this configuration. Use that to identify the cache file.
-    hashed_config = config["train_config"].copy()
-    # Remove variables which should not contribute to the uniqueness.
-    hashed_config.pop("epochs", None)
-    hashed_config.pop("max_steps", None)
-    hashed_config = make_pretty(hashed_config, sort=True)
-
-    # Derive a unique directory, unless the user provided their own.
-    if config.get("save_dir"):
-        # Convert existing directory to resolved path.
-        save_dir = Path(config.get("save_dir")).resolve()
-        logging.debug("Using save directory:\n" + str(save_dir) + "----------------------")
-    else:
-        save_dir = root_path / str(hashlib.shake_128(yaml.dump(hashed_config).encode()).hexdigest(8))
-        logging.debug("Save dir derived from config:\n" + yaml.dump(hashed_config) + "----------------------")
-    config["save_dir"] = save_dir
-
-    # Print the final directory and ensure it exists.
-    logging.info(f"Saving results at: {save_dir}")
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write the config to the resulting folder. Do it in a multiprocess-safe way with a file lock.
-    config_dest = save_dir / "train-config.yml"
-    lock = get_cache_lock_object(save_dir)
-    if not config_dest.exists():
-        with lock:
-            if not config_dest.exists():  # Do another check to protect against race conditions.
-                with open(config_dest, "w") as f:
-                    yaml.dump(make_pretty(hashed_config), f)
-            else:
-                ensure_configs_match(make_pretty(hashed_config), config_dest)
-    else:
-        ensure_configs_match(make_pretty(hashed_config), config_dest)
-    return lock
 
 
 def per_epoch_metrics(metrics_map):
@@ -493,6 +431,152 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
 
     print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
     return metric_logger.acc1.global_avg
+
+
+def train(config, model, train_loader, test_loader, device):
+    if config.get("deterministic"):
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+    else:
+        torch.backends.cudnn.benchmark = True
+
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=config.get("label_smoothing", 0.0))
+
+    custom_keys_weight_decay = []
+    if args.bias_weight_decay is not None:
+        custom_keys_weight_decay.append(("bias", args.bias_weight_decay))
+    if args.transformer_embedding_decay is not None:
+        for key in ["class_token", "position_embedding", "relative_position_bias_table"]:
+            custom_keys_weight_decay.append((key, args.transformer_embedding_decay))
+    parameters = utils.set_weight_decay(
+        model,
+        args.weight_decay,
+        norm_weight_decay=args.norm_weight_decay,
+        custom_keys_weight_decay=custom_keys_weight_decay if len(custom_keys_weight_decay) > 0 else None,
+    )
+
+    opt_name = args.opt.lower()
+    if opt_name.startswith("sgd"):
+        optimizer = torch.optim.SGD(
+            parameters,
+            lr=args.lr,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay,
+            nesterov="nesterov" in opt_name,
+        )
+    elif opt_name == "rmsprop":
+        optimizer = torch.optim.RMSprop(
+            parameters, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay, eps=0.0316, alpha=0.9
+        )
+    elif opt_name == "adamw":
+        optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD, RMSprop and AdamW are supported.")
+
+    scaler = torch.cuda.amp.GradScaler() if args.amp else None
+
+    args.lr_scheduler = args.lr_scheduler.lower()
+    if args.lr_scheduler == "steplr":
+        main_lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
+    elif args.lr_scheduler == "cosineannealinglr":
+        main_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs - args.lr_warmup_epochs, eta_min=args.lr_min
+        )
+    elif args.lr_scheduler == "exponentiallr":
+        main_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
+    else:
+        raise RuntimeError(
+            f"Invalid lr scheduler '{args.lr_scheduler}'. Only StepLR, CosineAnnealingLR and ExponentialLR "
+            "are supported."
+        )
+
+    if args.lr_warmup_epochs > 0:
+        if args.lr_warmup_method == "linear":
+            warmup_lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+                optimizer, start_factor=args.lr_warmup_decay, total_iters=args.lr_warmup_epochs
+            )
+        elif args.lr_warmup_method == "constant":
+            warmup_lr_scheduler = torch.optim.lr_scheduler.ConstantLR(
+                optimizer, factor=args.lr_warmup_decay, total_iters=args.lr_warmup_epochs
+            )
+        else:
+            raise RuntimeError(
+                f"Invalid warmup lr method '{args.lr_warmup_method}'. Only linear and constant are supported."
+            )
+        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup_lr_scheduler, main_lr_scheduler], milestones=[args.lr_warmup_epochs]
+        )
+    else:
+        lr_scheduler = main_lr_scheduler
+
+    model_without_ddp = model
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model_without_ddp = model.module
+
+    model_ema = None
+    if args.model_ema:
+        # Decay adjustment that aims to keep the decay independent of other hyper-parameters originally proposed at:
+        # https://github.com/facebookresearch/pycls/blob/f8cd9627/pycls/core/net.py#L123
+        #
+        # total_ema_updates = (Dataset_size / n_GPUs) * epochs / (batch_size_per_gpu * EMA_steps)
+        # We consider constant = Dataset_size for a given dataset/setup and omit it. Thus:
+        # adjust = 1 / total_ema_updates ~= n_GPUs * batch_size_per_gpu * EMA_steps / epochs
+        adjust = args.world_size * args.batch_size * args.model_ema_steps / args.epochs
+        alpha = 1.0 - args.model_ema_decay
+        alpha = min(1.0, alpha * adjust)
+        model_ema = utils.ExponentialMovingAverage(model_without_ddp, device=device, decay=1.0 - alpha)
+
+    if args.resume:
+        checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
+        model_without_ddp.load_state_dict(checkpoint["model"])
+        if not args.test_only:
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+        args.start_epoch = checkpoint["epoch"] + 1
+        if model_ema:
+            model_ema.load_state_dict(checkpoint["model_ema"])
+        if scaler:
+            scaler.load_state_dict(checkpoint["scaler"])
+
+    if args.test_only:
+        # We disable the cudnn benchmarking because it can noticeably affect the accuracy
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        if model_ema:
+            evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
+        else:
+            evaluate(model, criterion, data_loader_test, device=device)
+        return
+
+    logging.info("Start training")
+    start_time = time.time()
+    for epoch in range(args.start_epoch, args.epochs):
+        if args.distributed:
+            train_sampler.set_epoch(epoch)
+        train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
+        lr_scheduler.step()
+        evaluate(model, criterion, data_loader_test, device=device)
+        if model_ema:
+            evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
+        if args.output_dir:
+            checkpoint = {
+                "model": model_without_ddp.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "lr_scheduler": lr_scheduler.state_dict(),
+                "epoch": epoch,
+                "args": args,
+            }
+            if model_ema:
+                checkpoint["model_ema"] = model_ema.state_dict()
+            if scaler:
+                checkpoint["scaler"] = scaler.state_dict()
+            utils.save_on_master(checkpoint, os.path.join(args.output_dir, f"model_{epoch}.pth"))
+            utils.save_on_master(checkpoint, os.path.join(args.output_dir, "checkpoint.pth"))
+
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    logging.info(f"Training time {total_time_str}")
 
 
 def train(model: torch.nn.Module, train_loader, valid_loaders, config, device="cuda"):

@@ -7,7 +7,7 @@ import torch
 import torch.distributed as dist
 
 
-def setup_for_distributed(is_master):
+def setup_distributed_printing(is_master):
     """
     This function disables printing when not in master process
     """
@@ -24,31 +24,30 @@ def setup_for_distributed(is_master):
     __builtin__.print = print
 
 
-def init_distributed_mode(args):
+def init_distributed_mode(config):
     if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
-        args.rank = int(os.environ["RANK"])
-        args.world_size = int(os.environ["WORLD_SIZE"])
-        args.gpu = int(os.environ["LOCAL_RANK"])
+        config["rank"] = int(os.environ["RANK"])
+        config["world_size"] = int(os.environ["WORLD_SIZE"])
+        config["gpu"] = int(os.environ["LOCAL_RANK"])
     elif "SLURM_PROCID" in os.environ:
-        args.rank = int(os.environ["SLURM_PROCID"])
-        args.gpu = args.rank % torch.cuda.device_count()
-    elif hasattr(args, "rank"):
+        config["rank"] = int(os.environ["SLURM_PROCID"])
+        config["gpu"] = config["rank"] % torch.cuda.device_count()
+    elif "rank" in config:
         pass
     else:
-        print("Not using distributed mode")
-        args.distributed = False
+        print("Not using distributed mode.")
+        config["distributed"] = False
         return
 
-    args.distributed = True
+    config["distributed"] = True
 
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = "nccl"
-    print(f"| distributed init (rank {args.rank}): {args.dist_url}", flush=True)
-    torch.distributed.init_process_group(
-        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank
-    )
+    torch.cuda.set_device(config["gpu"])
+    config["dist_backend"] = "nccl"
+    print(f"| distributed init (rank {config['rank']}): {config['dist_url']}", flush=True)
+    torch.distributed.init_process_group(backend=config["dist_backend"], init_method=config["dist_url"],
+                                         world_size=config["world_size"], rank=config["rank"])
     torch.distributed.barrier()
-    setup_for_distributed(args.rank == 0)
+    setup_distributed_printing(config["rank"] == 0)
 
 
 def is_dist_avail_and_initialized():

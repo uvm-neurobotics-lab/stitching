@@ -265,15 +265,10 @@ def get_device(parser, parsed_args):
 
     parsed_args = args_as_dict(parsed_args)
 
-    if parsed_args.get("device") is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    elif parsed_args.get("device") == "cuda" and not torch.cuda.is_available():
-        error_msg = "Torch says CUDA is not available. Remove it from your command to proceed on CPU."
-        parser.error(error_msg)  # Exits.
-        device = "invalid"  # Unreachable, but silences a warning.
-    else:
-        device = parsed_args.get("device")
+    if parsed_args.get("device") != "cpu" and not torch.cuda.is_available():
+        parser.error("Torch says CUDA is not available. Explicitly select `--device cpu` to run on CPU.")  # Exits.
 
+    device = parsed_args.get("device", "cuda")
     logging.info(f"Using device: {device}")
     return torch.device(device)
 
