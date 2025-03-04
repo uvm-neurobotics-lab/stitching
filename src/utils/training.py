@@ -17,7 +17,8 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.notebook import tqdm
 
-from utils import ensure_config_param, get_leaf_modules, load_yaml, make_pretty, restore_grad_state, sizeof
+from utils import (ensure_config_param, get_leaf_modules, load_yaml, make_pretty, restore_grad_state, sizeof, gt_zero,
+                   gte_zero, _and, of_type, one_of)
 from utils.logging import eval_mode, overall_metrics, StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
                                 optimizer_from_config, scheduler_from_config)
@@ -91,36 +92,15 @@ def check_train_config(config: dict):
         RuntimeError: if the config is invalid.
     """
 
-    def gt_zero(x):
-        return x > 0
-
-    def gte_zero(x):
-        return x >= 0
-
-    def _and(*args):
-        def test_fn(val):
-            return np.all([cond(val) for cond in args])
-
-        return test_fn
-
-    def of_type(types):
-        def test_fn(val):
-            return isinstance(val, types)
-
-        return test_fn
-
-    def one_of(options):
-        def test_fn(val):
-            return val in options
-
-        return test_fn
-
+    ensure_config_param(config, "gpu", _and(of_type(int), gte_zero))
     ensure_config_param(config, "verbose", _and(of_type(int), gte_zero), required=False)
     ensure_config_param(config, "save_checkpoints", of_type(bool), required=False)
     ensure_config_param(config, "eval_checkpoints", of_type(bool), required=False)
     ensure_config_param(config, "checkpoint_initial_model", of_type(bool), required=False)
-    if config.get("save_checkpoints"):
-        ensure_config_param(config, "save_dir", of_type((str, Path)))
+    ensure_config_param(config, "test_only", of_type(bool), required=False)
+    ensure_config_param(config, "resume_from", of_type((str, Path)), required=config.get("test_only"))
+    ensure_config_param(config, "start_epoch", _and(of_type(int), gte_zero), dflt=0)
+    ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
 
     ensure_config_param(config, "train_config", of_type(dict))
     ensure_config_param(config, ["train_config", "benchmark"], of_type(str))
@@ -263,10 +243,10 @@ def print_memory_stats(rank=None):
     import psutil
     import subprocess
 
-    GB = 1024**3
+    GB = 1024 ** 3
 
     logging.info(f"Memory info for proc {rank if rank is not None else 'Main'}:")
-    
+
     # System memory stats.
     meminfo = psutil.virtual_memory()
     logging.info(f"Total: {meminfo.total / GB:.2f} GB")
@@ -275,7 +255,7 @@ def print_memory_stats(rank=None):
         logging.info(f"Shared: {meminfo.shared / GB:.2f} GB")
     logging.info(f"Used: {meminfo.percent}%")
     logging.info("")
-    
+
     # Process memory stats.
     process = psutil.Process()
     procinfo = process.memory_info()
@@ -286,68 +266,7 @@ def print_memory_stats(rank=None):
     logging.info("")
 
 
-def cache_probe_inputs(pm, probes, loaders, device, show_progress=False, print_freq=0):
-    """
-    Run data from all the given `loaders` through the given `ProbedModule`, and cache all inputs as they arrive at each
-    probe, along with the corresponding labels. These then can serve as a dataset for training each probe.
-
-    Args:
-        pm: The model to run; usually a `ProbedModule`, or a module which wraps a `ProbedModule`.
-        probes: The dict of probes for the module, e.g. as returned by `ProbedModule.probes`.
-        loaders: A dict from split name to `DataLoader`.
-        device: The device to run inference on (cached inputs will be copied to CPU).
-        show_progress: Whether to show a progress bar with `tqdm`.
-        print_freq: If set, this will print progress every `print_freq` batches. If 0 (default), progress messages are
-            not printed during the data loading loop.
-
-    Returns:
-        cached_inputs (dict): Cached input batches, dict[probe name -> dict[split -> batch list]]
-        cached_labels (dict): Cached label batches, dict[split -> batch list]
-    """
-    import gc
-    maybe_tqdm = tqdm if show_progress else (lambda x: x)
-    cached_inputs = {pname: {split: [] for split in loaders} for pname in probes}
-    cached_labels = {split: [] for split in loaders}
-
-    with eval_mode(pm):
-        for split, loader in loaders.items():
-            logging.info(f"Running through {len(loader)} batches of {split} set...")
-            data_time = RollingAverage(window_size=max(10, 10 * print_freq))
-            batch_time = RollingAverage(window_size=max(10, 10 * print_freq))
-            end = time.time()
-            num_batches = len(loader)
-            num_digits = int(np.log10(num_batches)) + 1
-            for i, (ims, labels) in enumerate(maybe_tqdm(loader)):
-                data_time.update(time.time() - end)
-
-                cached_labels[split].append(labels.detach().cpu())
-                _ = pm(ims.to(device))
-                for pname, p in probes.items():
-                    cached_inputs[pname][split].append(p.curr_input)
-
-                batch_time.update(time.time() - end)
-                end = time.time()
-                gc.collect()
-                torch.cuda.empty_cache()
-                if print_freq > 0 and (i % print_freq == 0 or i == (len(loader) - 1)):
-                    logging.info(f"({i+1: >{num_digits}}/{num_batches}) "
-                                 f"Batch Time: {batch_time.latest():.3f}s ({batch_time.mean():.3f}s avg) | "
-                                 f"Data Time: {data_time.latest():.3f}s ({data_time.mean():.3f}s avg) | ")
-                    print_memory_stats(device)
-                    actsize = sizeof((cached_inputs, cached_labels)) / 1024 / 1024 / 1024
-                    logging.info(f"Size of cached activations: {actsize:.2f} GB")
-                    # This diagnostic is the same every time so we only need to see it once.
-                    if i == 0:
-                        for pname, p in probes.items():
-                            if hasattr(p, "curr_input") and p.curr_input is not None:
-                                logging.info(f"    {pname} shape = {p.curr_input.shape}")
-
-    actsize = sizeof((cached_inputs, cached_labels)) / 1024 / 1024 / 1024
-    logging.info(f"Size of cached activations: {actsize:.2f} GB")
-    return cached_inputs, cached_labels
-
-
-def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
+def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
@@ -357,30 +276,14 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
     for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         start_time = time.time()
         image, target = image.to(device), target.to(device)
-        with torch.cuda.amp.autocast(enabled=scaler is not None):
-            output = model(image)
-            loss = criterion(output, target)
+        output = model(image)
+        loss = criterion(output, target)
 
         optimizer.zero_grad()
-        if scaler is not None:
-            scaler.scale(loss).backward()
-            if args.clip_grad_norm is not None:
-                # we should unscale the gradients of optimizer's assigned params if do gradient clipping
-                scaler.unscale_(optimizer)
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            if args.clip_grad_norm is not None:
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-            optimizer.step()
-
-        if model_ema and i % args.model_ema_steps == 0:
-            model_ema.update_parameters(model)
-            if epoch < args.lr_warmup_epochs:
-                # Reset ema buffer to keep copying weights during warmup period
-                model_ema.n_averaged.fill_(0)
+        loss.backward()
+        if args.clip_grad_norm is not None:
+            clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+        optimizer.step()
 
         acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
         batch_size = image.shape[0]
@@ -415,9 +318,9 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
 
     num_processed_samples = utils.reduce_across_processes(num_processed_samples)
     if (
-        hasattr(data_loader.dataset, "__len__")
-        and len(data_loader.dataset) != num_processed_samples
-        and torch.distributed.get_rank() == 0
+            hasattr(data_loader.dataset, "__len__")
+            and len(data_loader.dataset) != num_processed_samples
+            and torch.distributed.get_rank() == 0
     ):
         # See FIXME above
         warnings.warn(
@@ -433,144 +336,76 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     return metric_logger.acc1.global_avg
 
 
-def train(config, model, train_loader, test_loader, device):
+def train(config, model, train_loader, test_loader, train_sampler, device):
+    logging.info(f"Model to train:\n{model}\n")
+    if hasattr(model, "modules_str"):
+        logging.info(f"Model shape:\n{model.modules_str()}")
+    train_config = config["train_config"]
+    model.to(device)
+
+    # Set up progress/checkpoint logger. If double-verbose, print every step. Else, print a few times per epoch.
+    once_per_epoch = len(train_loader)
+    print_freq = config["print_freq"] if config.get("verbose", 0) <= 1 else 1
+    save_freq = once_per_epoch if config.get("save_checkpoints") else 0
+    eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
+    metric_fns = metric_fns_from_config(config, model)
+    log = StandardLog(model, metric_fns, print_freq=print_freq, save_freq=save_freq, eval_freq=eval_freq,
+                      save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
+                      checkpoint_initial_model=config.get("checkpoint_initial_model", True))
+    log.begin(model, train_loader, valid_loaders, device)  # TODO: Move to start of training?
+
     if config.get("deterministic"):
         torch.backends.cudnn.benchmark = False
         torch.use_deterministic_algorithms(True)
     else:
         torch.backends.cudnn.benchmark = True
 
-    criterion = torch.nn.CrossEntropyLoss(label_smoothing=config.get("label_smoothing", 0.0))
-
-    custom_keys_weight_decay = []
-    if args.bias_weight_decay is not None:
-        custom_keys_weight_decay.append(("bias", args.bias_weight_decay))
-    if args.transformer_embedding_decay is not None:
-        for key in ["class_token", "position_embedding", "relative_position_bias_table"]:
-            custom_keys_weight_decay.append((key, args.transformer_embedding_decay))
-    parameters = utils.set_weight_decay(
-        model,
-        args.weight_decay,
-        norm_weight_decay=args.norm_weight_decay,
-        custom_keys_weight_decay=custom_keys_weight_decay if len(custom_keys_weight_decay) > 0 else None,
-    )
-
-    opt_name = args.opt.lower()
-    if opt_name.startswith("sgd"):
-        optimizer = torch.optim.SGD(
-            parameters,
-            lr=args.lr,
-            momentum=args.momentum,
-            weight_decay=args.weight_decay,
-            nesterov="nesterov" in opt_name,
-        )
-    elif opt_name == "rmsprop":
-        optimizer = torch.optim.RMSprop(
-            parameters, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay, eps=0.0316, alpha=0.9
-        )
-    elif opt_name == "adamw":
-        optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.weight_decay)
-    else:
-        raise RuntimeError(f"Invalid optimizer {args.opt}. Only SGD, RMSprop and AdamW are supported.")
-
-    scaler = torch.cuda.amp.GradScaler() if args.amp else None
-
-    args.lr_scheduler = args.lr_scheduler.lower()
-    if args.lr_scheduler == "steplr":
-        main_lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
-    elif args.lr_scheduler == "cosineannealinglr":
-        main_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=args.epochs - args.lr_warmup_epochs, eta_min=args.lr_min
-        )
-    elif args.lr_scheduler == "exponentiallr":
-        main_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
-    else:
-        raise RuntimeError(
-            f"Invalid lr scheduler '{args.lr_scheduler}'. Only StepLR, CosineAnnealingLR and ExponentialLR "
-            "are supported."
-        )
-
-    if args.lr_warmup_epochs > 0:
-        if args.lr_warmup_method == "linear":
-            warmup_lr_scheduler = torch.optim.lr_scheduler.LinearLR(
-                optimizer, start_factor=args.lr_warmup_decay, total_iters=args.lr_warmup_epochs
-            )
-        elif args.lr_warmup_method == "constant":
-            warmup_lr_scheduler = torch.optim.lr_scheduler.ConstantLR(
-                optimizer, factor=args.lr_warmup_decay, total_iters=args.lr_warmup_epochs
-            )
-        else:
-            raise RuntimeError(
-                f"Invalid warmup lr method '{args.lr_warmup_method}'. Only linear and constant are supported."
-            )
-        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer, schedulers=[warmup_lr_scheduler, main_lr_scheduler], milestones=[args.lr_warmup_epochs]
-        )
-    else:
-        lr_scheduler = main_lr_scheduler
+    optimizer = optimizer_from_config(train_config, model.parameters())
+    scheduler = scheduler_from_config(train_config, optimizer)
+    loss_fns = loss_fns_from_config(train_config, model)
+    max_grad_norm = train_config["max_grad_norm"]
 
     model_without_ddp = model
-    if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+    if config["distributed"]:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config["gpu"]])
         model_without_ddp = model.module
 
-    model_ema = None
-    if args.model_ema:
-        # Decay adjustment that aims to keep the decay independent of other hyper-parameters originally proposed at:
-        # https://github.com/facebookresearch/pycls/blob/f8cd9627/pycls/core/net.py#L123
-        #
-        # total_ema_updates = (Dataset_size / n_GPUs) * epochs / (batch_size_per_gpu * EMA_steps)
-        # We consider constant = Dataset_size for a given dataset/setup and omit it. Thus:
-        # adjust = 1 / total_ema_updates ~= n_GPUs * batch_size_per_gpu * EMA_steps / epochs
-        adjust = args.world_size * args.batch_size * args.model_ema_steps / args.epochs
-        alpha = 1.0 - args.model_ema_decay
-        alpha = min(1.0, alpha * adjust)
-        model_ema = utils.ExponentialMovingAverage(model_without_ddp, device=device, decay=1.0 - alpha)
-
-    if args.resume:
-        checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
+    if config.get("resume_from"):
+        checkpoint = torch.load(config.get("resume_from"), map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"])
-        if not args.test_only:
+        if not config.get("test_only"):
             optimizer.load_state_dict(checkpoint["optimizer"])
-            lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
-        args.start_epoch = checkpoint["epoch"] + 1
-        if model_ema:
-            model_ema.load_state_dict(checkpoint["model_ema"])
-        if scaler:
-            scaler.load_state_dict(checkpoint["scaler"])
+            scheduler.load_state_dict(checkpoint["scheduler"])
+        config["start_epoch"] = checkpoint["epoch"] + 1
 
-    if args.test_only:
+    if config.get("test_only"):
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        if model_ema:
-            evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
-        else:
-            evaluate(model, criterion, data_loader_test, device=device)
+        evaluate(model, criterion, test_loader, device=device)
         return
+
+    # BEGIN TRAINING
+    step = 1
+    max_steps = train_config.get("max_steps", float("inf"))
+    max_epochs = train_config["epochs"] + 1
 
     logging.info("Start training")
     start_time = time.time()
-    for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
+    for epoch in range(config.get("start_epoch"), config["epochs"]):
+        if config["distributed"] and train_sampler is not None:
             train_sampler.set_epoch(epoch)
-        train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
-        lr_scheduler.step()
-        evaluate(model, criterion, data_loader_test, device=device)
-        if model_ema:
-            evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
+        train_one_epoch(model, criterion, optimizer, train_loader, device, epoch, args)
+        scheduler.step()
+        evaluate(model, criterion, test_loader, device=device)
         if args.output_dir:
             checkpoint = {
                 "model": model_without_ddp.state_dict(),
                 "optimizer": optimizer.state_dict(),
-                "lr_scheduler": lr_scheduler.state_dict(),
+                "scheduler": scheduler.state_dict(),
                 "epoch": epoch,
-                "args": args,
+                "config": config,
             }
-            if model_ema:
-                checkpoint["model_ema"] = model_ema.state_dict()
-            if scaler:
-                checkpoint["scaler"] = scaler.state_dict()
             utils.save_on_master(checkpoint, os.path.join(args.output_dir, f"model_{epoch}.pth"))
             utils.save_on_master(checkpoint, os.path.join(args.output_dir, "checkpoint.pth"))
 

@@ -19,7 +19,7 @@ import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
 from assembly import Assembly
-from utils import ensure_config_param, make_pretty
+from utils import ensure_config_param, make_pretty, gte_zero, _and, of_type
 
 NUM_CORES = os.cpu_count()
 if hasattr(os, "sched_getaffinity"):
@@ -41,15 +41,27 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
         argutils.ArgParser: The parser.
     """
     parser = argutils.create_parser(desc, allow_abbrev=allow_abbrev)
-    parser.add_argument("-c", "--config", metavar="PATH", type=argutils.existing_path, required=True,
+    parser.add_argument("-c", "--config", metavar="FILE", type=argutils.existing_path, required=True,
                         help="Training config file.")
     datasets.add_dataset_arg(parser, dflt_data_dir=Path(__file__).parent / "data")
+
+    # Output/checkpoint args.
+    parser.add_argument("--print-freq", default=10, type=int, metavar="N", help="Print frequency.")
     parser.add_argument("--save-checkpoints", action="store_true",
                         help="Save the model weights at the end of each epoch.")
     parser.add_argument("--no-eval-checkpoints", dest="eval_checkpoints", action="store_false",
                         help="Do not evaluate each checkpoint on the entire train/test set. This can speed up training"
                              " but the downside is that you will be relying on training batches only for tracking the"
                              " progress of training.")
+    parser.add_argument("-o", "--output", "--dest", metavar="FOLDER", dest="save_dir", type=Path,
+                        help="Location to save the model checkpoints. By default, they will be saved in the current "
+                             "directory.")
+    parser.add_argument("--start-epoch", metavar="N", default=0, type=int, help="Start epoch.")
+    parser.add_argument("--resume-from", "--resume", metavar="FILE", default="", type=argutils.existing_path,
+                        help="Path of checkpoint to resume from.")
+    parser.add_argument("--test-only", dest="test_only", action="store_true", help="Only test the model.")
+
+    # Distributed/hardware args.
     parser.add_argument("-j", "--workers", default=NUM_CORES, type=int, metavar="N",
                         help="Number of data loading workers. Defaults to the number of cores detected on the current "
                              "node.")
@@ -58,19 +70,16 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              "current node.")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
                         help="Maximum number of batches. Useful for quick testing/debugging.")
-    parser.add_argument("-o", "--output", "--dest", type=Path, metavar="FOLDER",
-                        help="Location to save the model checkpoints. By default, they will be saved in the current "
-                             "directory.")
-    parser.add_argument("--print-freq", default=10, type=int, metavar="N", help="Print frequency.")
     parser.add_argument("--world-size", default=-1, type=int, metavar="N",
                         help="Number of nodes for distributed processing.")
     parser.add_argument("--rank", default=-1, type=int, metavar="N", help="Node rank for distributed processing.")
     parser.add_argument("--dist-url", default="tcp://224.66.41.62:23456", type=str, metavar="URL",
                         help="URL used to set up distributed processing.")
-    parser.add_argument("--cpu", action="store_true", help="Allow the use of CPU (if no GPU can be found).")
+    argutils.add_device_arg(parser)
     parser.add_argument("--gpu", default=None, type=int, help="GPU ID to use.")
     parser.add_argument("--deterministic", action="store_true", help="Use only deterministic algorithms.")
-    argutils.add_device_arg(parser)
+
+    # Other args.
     argutils.add_seed_arg(parser, default_seed=1)
     argutils.add_wandb_args(parser, allow_id=allow_id)
     argutils.add_verbose_arg(parser)
@@ -94,12 +103,6 @@ def validate_config(config):
     # Output config for reference. Do it before checking config to assist debugging.
     logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
 
-    def of_type(types):
-        def test_fn(val):
-            return isinstance(val, types)
-
-        return test_fn
-
     # First check values for constructing the model.
     ensure_config_param(config, "blocks", of_type(list))
     ensure_config_param(config, "adapters", of_type(list))
@@ -109,6 +112,7 @@ def validate_config(config):
     ensure_config_param(config, "base_adapter", of_type(dict), required=False)
 
     # Now check values related to training the model.
+    ensure_config_param(config, "gpu", _and(of_type(int), gte_zero), dflt=0)
     training.check_train_config(config)
 
     return config
@@ -123,9 +127,11 @@ def prep_config(parser, args):
     argutils.configure_logging(args, level=logging.INFO)
 
     # This list governs which _top-level_ args can be overridden from the command line.
-    config = argutils.load_config_from_args(parser, args, ["data_path", "save_checkpoints", "eval_checkpoints",
-                                                           "device", "id", "project", "entity", "group", "verbose",
-                                                           "dist_url", "world_size", "rank", "gpu"])
+    config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
+                                                           "eval_checkpoints", "resume_from", "start_epoch",
+                                                           "test_only", "save_dir", "id", "project", "entity", "group",
+                                                           "dist_url", "world_size", "rank", "device", "gpu", "workers",
+                                                           "deterministic", "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
@@ -177,7 +183,7 @@ def setup_and_train(parser, config):
                      all_fixed=config.get("frozen", True), input_shape=input_shape, num_classes=num_classes)
     model.to(device)
 
-    training.train(config, model, train_loader, test_loader, device)
+    training.train(config, model, train_loader, test_loader, train_sampler, device)
 
 
 def main(argv=None):

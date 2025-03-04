@@ -176,6 +176,42 @@ def make_pretty(config, sort=False):
         return config
 
 
+def gt_zero(x):
+    """For use in constructing test conditions for `ensure_config_param()`."""
+    return x > 0
+
+
+def gte_zero(x):
+    """For use in constructing test conditions for `ensure_config_param()`."""
+    return x >= 0
+
+
+def _and(*args):
+    """For use in constructing test conditions for `ensure_config_param()`."""
+    import numpy as np
+
+    def test_fn(val):
+        return np.all([cond(val) for cond in args])
+
+    return test_fn
+
+
+def of_type(types):
+    """For use in constructing test conditions for `ensure_config_param()`."""
+    def test_fn(val):
+        return isinstance(val, types)
+
+    return test_fn
+
+
+def one_of(options):
+    """For use in constructing test conditions for `ensure_config_param()`."""
+    def test_fn(val):
+        return val in options
+
+    return test_fn
+
+
 def ensure_config_param(config, keys, condition=None, dflt=None, required=True):
     """
     Function to check that a config parameter is present and satisfies a given condition.
