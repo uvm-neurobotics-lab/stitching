@@ -1,6 +1,7 @@
 """
 Functions to support training networks in ways that can form the basis of a NAS benchmark.
 """
+import datetime
 import hashlib
 import logging
 import time
@@ -25,6 +26,7 @@ from utils.optimization import (limit_model_optimization, loss_fns_from_config, 
 
 
 class Metric(Enum):
+    """Metric for inclusion in a dataframe."""
     TRAIN_ACC = "Train Accuracy"
     TRAIN_LOSS = "Train Loss"
     TRAIN_TIME = "Train Time"
@@ -60,27 +62,6 @@ LOG2METRIC = {
 NO_NAN_COLS = [Metric.TRAIN_ACC, Metric.VAL_ACC, Metric.TEST_ACC, Metric.TRAIN_TIME, Metric.TEST_TIME]
 
 
-class RollingAverage:
-    def __init__(self, window_size=10):
-        self.window_sz = window_size
-        self.window = []
-
-    def update(self, val):
-        self.window.append(val)
-        if len(self.window) > self.window_sz:
-            del self.window[0]
-
-    def latest(self):
-        if len(self.window) == 0:
-            return np.nan
-        return self.window[-1]
-
-    def mean(self):
-        if len(self.window) == 0:
-            return np.nan
-        return np.mean(self.window)
-
-
 def check_train_config(config: dict):
     """
     Validates the given config dict. Since we will use this config to create a unique hash to describe training, we
@@ -111,6 +92,7 @@ def check_train_config(config: dict):
 
     if config["train_config"]["train_method"] == "sgd":
         ensure_config_param(config, ["train_config", "epochs"], _and(of_type(int), gte_zero))
+        ensure_config_param(config, ["train_config", "max_steps"], _and(of_type(int), gte_zero), required=False)
         ensure_config_param(config, ["train_config", "loss_fn"], of_type(str), "cross_entropy")
         ensure_config_param(config, ["train_config", "optimizer"], of_type(str), "Adam")
         ensure_config_param(config, ["train_config", "optimizer_args"], of_type(dict), {"lr": 0.1})
@@ -266,76 +248,6 @@ def print_memory_stats(rank=None):
     logging.info("")
 
 
-def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args):
-    model.train()
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
-    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
-
-    header = f"Epoch: [{epoch}]"
-    for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
-        start_time = time.time()
-        image, target = image.to(device), target.to(device)
-        output = model(image)
-        loss = criterion(output, target)
-
-        optimizer.zero_grad()
-        loss.backward()
-        if args.clip_grad_norm is not None:
-            clip_grad_norm_(model.parameters(), args.clip_grad_norm)
-        optimizer.step()
-
-        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
-        batch_size = image.shape[0]
-        metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
-        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
-        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
-        metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
-
-
-def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
-    model.eval()
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    header = f"Test: {log_suffix}"
-
-    num_processed_samples = 0
-    with torch.inference_mode():
-        for image, target in metric_logger.log_every(data_loader, print_freq, header):
-            image = image.to(device, non_blocking=True)
-            target = target.to(device, non_blocking=True)
-            output = model(image)
-            loss = criterion(output, target)
-
-            acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
-            # FIXME need to take into account that the datasets
-            # could have been padded in distributed setup
-            batch_size = image.shape[0]
-            metric_logger.update(loss=loss.item())
-            metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
-            metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
-            num_processed_samples += batch_size
-    # gather the stats from all processes
-
-    num_processed_samples = utils.reduce_across_processes(num_processed_samples)
-    if (
-            hasattr(data_loader.dataset, "__len__")
-            and len(data_loader.dataset) != num_processed_samples
-            and torch.distributed.get_rank() == 0
-    ):
-        # See FIXME above
-        warnings.warn(
-            f"It looks like the dataset has {len(data_loader.dataset)} samples, but {num_processed_samples} "
-            "samples were used for the validation, which might bias the results. "
-            "Try adjusting the batch size and / or the world size. "
-            "Setting the world size to 1 is always a safe bet."
-        )
-
-    metric_logger.synchronize_between_processes()
-
-    print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
-    return metric_logger.acc1.global_avg
-
-
 def train(config, model, train_loader, test_loader, train_sampler, device):
     logging.info(f"Model to train:\n{model}\n")
     if hasattr(model, "modules_str"):
@@ -344,13 +256,16 @@ def train(config, model, train_loader, test_loader, train_sampler, device):
     model.to(device)
 
     # Set up progress/checkpoint logger. If double-verbose, print every step. Else, print a few times per epoch.
+    max_steps = train_config.get("max_steps", float("inf"))
+    max_epochs = train_config["epochs"]
+    expected_steps = min(max_steps, max_epochs * len(train_loader))
     once_per_epoch = len(train_loader)
     print_freq = config["print_freq"] if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
     metric_fns = metric_fns_from_config(config, model)
-    log = StandardLog(model, metric_fns, print_freq=print_freq, save_freq=save_freq, eval_freq=eval_freq,
-                      save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
+    log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,
+                      eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
                       checkpoint_initial_model=config.get("checkpoint_initial_model", True))
     log.begin(model, train_loader, valid_loaders, device)  # TODO: Move to start of training?
 
@@ -382,36 +297,23 @@ def train(config, model, train_loader, test_loader, train_sampler, device):
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        evaluate(model, criterion, test_loader, device=device)
+        evaluate(model, criterion, test_loader, device=device)  # TODO: Replace w/ log.close?
         return
 
     # BEGIN TRAINING
     step = 1
-    max_steps = train_config.get("max_steps", float("inf"))
-    max_epochs = train_config["epochs"] + 1
-
-    logging.info("Start training")
-    start_time = time.time()
-    for epoch in range(config.get("start_epoch"), config["epochs"]):
+    for epoch in range(config.get("start_epoch") + 1, max_epochs + 1):  # Epoch/step counts will be 1-based.
         if config["distributed"] and train_sampler is not None:
             train_sampler.set_epoch(epoch)
-        train_one_epoch(model, criterion, optimizer, train_loader, device, epoch, args)
+        step = run_one_epoch(model, train_loader, valid_loaders, optimizer, loss_fns, log, epoch, step, max_steps,
+                             max_grad_norm=max_grad_norm, device=device)
+        if step > max_steps:
+            break
         scheduler.step()
-        evaluate(model, criterion, test_loader, device=device)
-        if args.output_dir:
-            checkpoint = {
-                "model": model_without_ddp.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "epoch": epoch,
-                "config": config,
-            }
-            utils.save_on_master(checkpoint, os.path.join(args.output_dir, f"model_{epoch}.pth"))
-            utils.save_on_master(checkpoint, os.path.join(args.output_dir, "checkpoint.pth"))
 
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    logging.info(f"Training time {total_time_str}")
+    # TODO: Is this step/epoch logic still correct?
+    return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, train_loader, valid_loaders, device,
+                     bool(config.get("eval_checkpoints")), bool(config.get("save_checkpoints")))
 
 
 def train(model: torch.nn.Module, train_loader, valid_loaders, config, device="cuda"):
@@ -429,7 +331,7 @@ def train(model: torch.nn.Module, train_loader, valid_loaders, config, device="c
 
     # Set up progress/checkpoint logger. If double-verbose, print every step. Else, print a few times per epoch.
     once_per_epoch = len(train_loader)
-    print_freq = 100 if config.get("verbose", 0) <= 1 else 1
+    print_freq = 10 if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
     metric_fns = metric_fns_from_config(config, model)
@@ -458,6 +360,33 @@ def train(model: torch.nn.Module, train_loader, valid_loaders, config, device="c
                      bool(config.get("eval_checkpoints")), bool(config.get("save_checkpoints")))
 
 
+def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args):
+    model.train()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
+    metric_logger.add_meter("img/s", utils.SmoothedValue(window_size=10, fmt="{value}"))
+
+    header = f"Epoch: [{epoch}]"
+    for i, (image, target) in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
+        start_time = time.time()
+        image, target = image.to(device), target.to(device)
+        output = model(image)
+        loss = criterion(output, target)
+
+        optimizer.zero_grad()
+        loss.backward()
+        if args.clip_grad_norm is not None:
+            clip_grad_norm_(model.parameters(), args.clip_grad_norm)
+        optimizer.step()
+
+        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+        batch_size = image.shape[0]
+        metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
+        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+        metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
+
+
 def run_one_epoch(model, train_loader, valid_loaders, optimizer, loss_fns, log, epoch, step, max_steps=float("inf"),
                   opt_params=None, max_grad_norm=0, device=None):
     """ Run one training epoch. """
@@ -470,7 +399,9 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, loss_fns, log, 
 
     model.train()
     for images, labels in train_loader:
-        run_one_step(images, labels, model, optimizer, loss_fns, log, epoch, step, max_grad_norm, device)
+        log.begin_step(step, epoch)
+        total_loss, losses, out = run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm, device)
+        log.end_step(step, epoch, total_loss, out, labels, model, all_losses=losses)
         step += 1
         if step > max_steps:
             break
@@ -483,7 +414,7 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, loss_fns, log, 
     return step
 
 
-def run_one_step(images, labels, model, optimizer, loss_fns, log, epoch, step, max_grad_norm=0, device=None):
+def run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm=0, device=None):
     # Move data to GPU once loaded.
     images, labels = images.to(device), labels.to(device)
 
@@ -498,9 +429,7 @@ def run_one_step(images, labels, model, optimizer, loss_fns, log, epoch, step, m
         clip_grad_norm_(model.parameters(), max_grad_norm)
     optimizer.step()
 
-    # Record accuracy and other metrics. Do this after the backward pass in case we want to record gradients or
-    # save the latest model.
-    log.step(step, epoch, loss, out, labels, model, all_losses=losses)
+    return loss, losses, out
 
 
 def forward_pass(model, ims, labels, loss_fns):

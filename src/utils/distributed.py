@@ -79,12 +79,12 @@ def save_on_master(*args, **kwargs):
         torch.save(*args, **kwargs)
 
 
-def reduce_across_processes(val):
+def reduce_across_processes(val, op=dist.ReduceOp.SUM):
     if not is_dist_avail_and_initialized():
         # nothing to sync, but we still convert to tensor for consistency with the distributed case.
         return torch.tensor(val)
 
     t = torch.tensor(val, device="cuda")
     dist.barrier()
-    dist.all_reduce(t)
+    dist.all_reduce(t, op)
     return t
