@@ -327,6 +327,32 @@ def get_graph_node_names(
     return train_nodes, eval_nodes
 
 
+def print_model(model: nn.Module, print_module_info: bool = False, print_graph: bool = True,
+                print_fn: Callable = print):
+    """
+    A function to print out the detailed structure of the model for logging or debugging purposes.
+
+    Args:
+        model: model on which we will extract the features
+        print_module_info: Whether to print the modules (standard nn.Module string output).
+        print_graph: Whether to trace and print the full computation graph.
+        print_fn: The function to use for printing (e.g., `print`, `logging.info`).
+    """
+    def print_w_newline(msg):
+        print_fn("\n" + str(msg))
+
+    if print_module_info:
+        print_w_newline(model)
+
+    if print_graph:
+        if isinstance(model, torch.fx.GraphModule):
+            print_w_newline(model.graph)
+        else:
+            tracer = NodePathTracer(autowrap_modules=(math, torchvision.ops), leaf_modules=_get_leaf_modules_for_ops())
+            graph = tracer.trace(model)
+            print_w_newline(graph)
+
+
 def create_feature_extractor(
         model: nn.Module,
         return_nodes: Optional[Union[List[str], Dict[str, str]]] = None,

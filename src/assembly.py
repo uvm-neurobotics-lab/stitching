@@ -68,14 +68,19 @@ class Assembly(nn.Module):
         else:
             self.base = None
 
-        blocks = []
-        block_types = []
+        self.blocks = []
+        self.block_types = []
+        self.block_outputs = []
         for block_cfg in block_list:
             base_model_name = block_cfg["model_name"]
-            block_types.append(MODEL_ZOO[base_model_name.split(".")[0]]["type"])
-            blocks.append(load_subnet(**block_cfg))
-        self.blocks = nn.ModuleList(blocks)
-        self.block_types = block_types
+            self.block_types.append(MODEL_ZOO[base_model_name.split(".")[0]]["type"])
+            if "output_type" in block_cfg:
+                self.block_outputs.append(block_cfg["output_type"])
+                del block_cfg["output_type"]
+            else:
+                self.block_outputs.append(None)
+            self.blocks.append(load_subnet(**block_cfg))
+        self.blocks = nn.ModuleList(self.blocks)
 
         if adapter_list:
             adapters = []
@@ -96,7 +101,7 @@ class Assembly(nn.Module):
             output_shape = utils.calculate_output_shape(self.trunk_forward, input_shape)
             self.head = ClassifierHead(output_shape, num_classes)
         else:
-            self.base = None
+            self.head = None
 
         if block_fixed:
             for param in self.blocks.parameters():
@@ -109,6 +114,7 @@ class Assembly(nn.Module):
     def trunk_forward(self, x):
         if self.base:
             x = self.base(x)
+        # TODO: This out_shape stuff is a complete mess, inherited from DeRy. Needs refactoring.
         out_shape = (x.shape[2], x.shape[3])
         if self.base_adapter is not None:
             x, out_shape = self.base_adapter(x, out_shape)
@@ -118,12 +124,19 @@ class Assembly(nn.Module):
                 x, out_shape = self.adapters[i - 1](x, out_shape)
 
             if self.block_types[i] == "swin":
-                x, out_shape = block(x, out_shape)
+                x = block(x, out_shape)
+                if self.block_outputs[i] == "vector":
+                    out_shape = [1, 1]
+                else:
+                    x, out_shape = x
             elif self.block_types[i] == "cnn":
                 x = block(x)
                 if isinstance(x, dict):
                     x = list(x.values())[0]
-                out_shape = (x.shape[2], x.shape[3])
+                if self.block_outputs[i] == "vector":
+                    out_shape = [1, 1]
+                else:
+                    out_shape = (x.shape[2], x.shape[3])
             elif self.block_types[i] == "vit":
                 x = block(x)
 

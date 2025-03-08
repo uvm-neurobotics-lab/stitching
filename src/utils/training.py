@@ -12,7 +12,7 @@ import torch
 import yaml
 from torch.nn.utils import clip_grad_norm_
 
-from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type, one_of
+from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type
 from utils.logging import overall_metrics, StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
                                 optimizer_from_config, scheduler_from_config)
@@ -239,7 +239,6 @@ def print_memory_stats(rank=None):
 
 
 def train(config, model, train_loader, valid_loaders, train_sampler, device):
-    logging.info(f"Model to train:\n{model}\n")
     train_config = config["train_config"]
     model.to(device)
 
