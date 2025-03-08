@@ -107,6 +107,23 @@ def function_from_name(name, **kwargs):
 #
 
 
+def add_yaml_include(yaml, base_dir=None):
+    """
+    Enable !include functionality in YAML files, if the yaml_include package is available. Otherwise this is safely
+    skipped.
+
+    :param yaml: The already-imported `yaml` module.
+    :param base_dir: If a YAML file !includes other files, they should be relative to this directory. If not provided,
+        defaults to current working directory. See `yaml_include` documentation.
+    """
+    try:
+        import yaml_include
+        yaml.add_constructor("!include", yaml_include.Constructor(base_dir=base_dir))
+    except ImportError:
+        # If this module is not available, the user won't be able to recursively !include YAML files.
+        return
+
+
 def load_yaml(yfile):
     """
     Read a YAML file. This is different from the default YAML loader because it can load YAML files that contain
@@ -118,12 +135,11 @@ def load_yaml(yfile):
     Returns:
         dict: The loaded YAML object.
     """
+    yfile = Path(yfile)
+
     # Import locally so folks aren't mandated to depend on yaml unless they're using this function.
     import yaml
-    from yamlinclude import YamlIncludeConstructor
-
-    yfile = Path(yfile)
-    YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader, base_dir=yfile.parent)
+    add_yaml_include(yaml, yfile.parent)
 
     with open(yfile, 'r') as f:
         return yaml.load(f, Loader=yaml.FullLoader)
@@ -144,10 +160,7 @@ def load_yaml_from_string(ystr, base_dir=None):
     """
     # Import locally so folks aren't mandated to depend on yaml unless they're using this function.
     import yaml
-    from yamlinclude import YamlIncludeConstructor
-
-    YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader, base_dir=base_dir)
-
+    add_yaml_include(yaml, base_dir)
     return yaml.load(ystr, Loader=yaml.FullLoader)
 
 
@@ -198,6 +211,7 @@ def _and(*args):
 
 def of_type(types):
     """For use in constructing test conditions for `ensure_config_param()`."""
+
     def test_fn(val):
         return isinstance(val, types)
 
@@ -206,6 +220,7 @@ def of_type(types):
 
 def one_of(options):
     """For use in constructing test conditions for `ensure_config_param()`."""
+
     def test_fn(val):
         return val in options
 
@@ -497,7 +512,7 @@ def memory_constrained_batches(dataset, indices, max_gb):
     data, label = dataset[indices[0]]
     data_mem_bytes = data.element_size() * data.nelement()
     label_mem_bytes = label.element_size() * label.nelement()
-    GB = 1024**4
+    GB = 1024 ** 4
     mem_per_sample_gb = (data_mem_bytes + label_mem_bytes) / GB
     num_allowable_samples = int(max_gb / mem_per_sample_gb)
     return list(divide_chunks(indices, num_allowable_samples))
