@@ -1,6 +1,8 @@
 name: stitch
+channel_priority: strict  # Only look in conda-forge when not available in defaults.
 channels:
   - defaults
+  - conda-forge
 dependencies:
   - python=3.11
   - pytorch::pytorch
@@ -10,3 +12,7 @@ dependencies:
   - tqdm
   - pytest
   - tabulate
+  - wandb  # optional
+  - pip:
+      - pyyaml-include  # optional
+      - timm  # optional
