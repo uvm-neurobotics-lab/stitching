@@ -2,7 +2,7 @@
 A script to train an architecture and store the training trajectory in the corresponding cache.
 
 To test this script, try:
-    python src/stitch_train.py -c tests/stitch-resnet-18.yml --st
+    python src/stitch_train.py -c tests/stitch-mobilenetv3.yml --st
 """
 
 import logging
