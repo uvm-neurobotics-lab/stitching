@@ -262,7 +262,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
     log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
-                      checkpoint_initial_model=config.get("checkpoint_initial_model", True))
+                      checkpoint_initial_model=config.get("checkpoint_initial_model", config.get("save_checkpoints")))
 
     if config.get("test_only"):
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy.
