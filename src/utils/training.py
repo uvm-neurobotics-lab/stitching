@@ -255,9 +255,9 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     max_epochs = train_config["epochs"]
     expected_steps = min(max_steps, max_epochs * len(train_loader))
     metric_fns = metric_fns_from_config(config, model)
-    # If double-verbose, print every step. Else, print a few times per epoch.
+    # If double-verbose, print every step. Else, print every 10 steps when not configured.
     once_per_epoch = len(train_loader)
-    print_freq = config["print_freq"] if config.get("verbose", 0) <= 1 else 1
+    print_freq = config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
     log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,

@@ -33,7 +33,7 @@ class SmoothedValue:
     def __init__(self, window_size=20, fmt=None):
         if fmt is None:
             # Default format: <recent value> (<all-time avg>)
-            fmt = "{median:.4f} ({global_avg:.4f})"
+            fmt = "{median:.3f} ({global_avg:.3f})"
         self.fmt = fmt
         self.deque = deque(maxlen=window_size)
         self.total = 0.0
@@ -201,11 +201,6 @@ class BaseLog:
                  use_wandb=False, checkpoint_initial_model=True, eval_full_train_set=False, print_delimiter="\t"):
         self.metric_fns = metric_fns
         self.metrics_to_print = metrics_to_print
-        if self.metrics_to_print:
-            available_metrics = list(metric_fns) if metric_fns is not None else []
-            for k in self.metrics_to_print:
-                if k not in available_metrics:
-                    raise ValueError(f'Metric "{k}" not found in available metrics: {available_metrics}')
         self.save_freq = save_freq
         self.eval_freq = eval_freq
         self.save_dir = save_dir
@@ -299,12 +294,12 @@ class BaseLog:
                         levels = ["Overall", mk]
                     metrics[f"{levels[0]}/{key} {levels[1]}"] = mv
                     if (not self.metrics_to_print) or (mk in self.metrics_to_print):
-                        metric_str += f"{mk} = {mv:.3f} | "
+                        metric_str += f"{mk}: {mv:.3f} | "
                 if metric_str:
                     # TODO: tab separate instead?
                     metric_str = metric_str[:-2]  # remove ending separator: "| "
                 self.info(f"    {key} {metric_str}"
-                          f"(Time to Eval = {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
+                          f"(Time to Eval: {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
 
         # Save the model.
         if should_save and dist.is_main_process():
@@ -358,7 +353,7 @@ class StandardLog(BaseLog):
             wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
     def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):
-        self.record({"lr": optimizer.param_groups[0]["lr"]}, it)  # NOTE: assumes only one param group for now.
+        self.record({"LR": optimizer.param_groups[0]["lr"]}, it)  # NOTE: assumes only one param group for now.
         self.info(f"---- Beginning Epoch {epoch} ({len(train_loader)} batches) ----")
         self.epoch_start_step = it
         self.epoch_start_time = self.step_end_time = time()
@@ -375,10 +370,8 @@ class StandardLog(BaseLog):
             for step in range(self.epoch_start_step, it + 1):
                 if step in self.recorded_metrics:
                     for k, v in self.recorded_metrics[step].items():
-                        if k in ("Epoch", "Train Time", "lr"):  # Don't accumulate these metrics.
+                        if k in ("Epoch", "LR", "Max Mem") or k.startswith("Time/"):  # Don't accumulate these metrics.
                             continue
-                        if k.startswith("Batch "):  # Turn "Batch" metrics into "Overall" metrics.
-                            k = k[6:]
                         summaries[k].update(v, self.recorded_counts.get(step, 1))
             for mname, val in summaries.items():
                 val.synchronize_between_processes()
@@ -395,18 +388,20 @@ class StandardLog(BaseLog):
         self.record({"Time/Data": self.step_start_time - self.step_end_time}, it)
 
     def end_step(self, it, epoch, loss, out, labels, model, all_losses=None, metric_fns=None):
-        if not all_losses:
-            all_losses = {}
         if not metric_fns:
             metric_fns = self.metric_fns
 
         # Compute metrics.
         # TODO: may want to separate out metrics which are independent of batch size. Epoch, loss, img per sec, max mem
-        metrics = {"Epoch": epoch, "Loss": loss.item(), **{k: v.item() for k, v in all_losses.items()}}
+        extra_to_print = []
+        metrics = {"Epoch": epoch, "Loss": loss.item()}
+        if all_losses is not None and len(all_losses) > 1:
+            metrics.update({k: v.item() for k, v in all_losses.items()})
         for metric in metric_fns:
             md = metric(out, labels)
             for mk, mv in md.items():
-                metrics["Batch " + mk] = mv
+                metrics[mk] = mv
+                extra_to_print.append(mk)
         if self.use_wandb and self.log_gradients:
             log_gradient_stats(metrics, model)
 
@@ -427,10 +422,13 @@ class StandardLog(BaseLog):
             eta = time_per_step * (self.expected_steps - it)
             msg = [f"Epoch {epoch}",
                    f"[{it - self.epoch_start_step + 1:{str(len(str(self.steps_in_epoch)))}d}/{self.steps_in_epoch}]",
-                   f"ETA: {datetime.timedelta(seconds=int(eta))}",
-                   f"Batch Loss: {loss.item():.3f}"]
-            for mk, mv in self.smoothed_metrics.items():
-                if (not self.metrics_to_print) or (mk in self.metrics_to_print):
+                   f"ETA: {datetime.timedelta(seconds=int(eta))}"]
+            # Print a default set of metrics if not specified by the user.
+            to_print = (self.metrics_to_print if self.metrics_to_print else
+                        ["Loss", "Time/Step", "Time/Data", "Time/Img Per Sec", "Max Mem"] + extra_to_print)
+            for mk in to_print:
+                if mk in self.smoothed_metrics:
+                    mv = self.smoothed_metrics[mk]
                     mv.synchronize_between_processes()
                     msg.append(f"{mk}: {mv}")
             self.info(self.delimiter.join(msg))
