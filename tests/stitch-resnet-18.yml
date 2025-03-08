@@ -35,6 +35,8 @@ train_config:
   epochs: &epochs 2
 
   # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
   batch_size: 256
   optimizer: Adam
   lr: 1.0e-3

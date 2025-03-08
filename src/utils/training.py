@@ -77,33 +77,30 @@ def check_train_config(config: dict):
     ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
 
     ensure_config_param(config, "train_config", of_type(dict))
-    ensure_config_param(config, ["train_config", "benchmark"], of_type(str))
     ensure_config_param(config, ["train_config", "dataset"], of_type(str))
     ensure_config_param(config, ["train_config", "batch_size"], _and(of_type(int), gt_zero))
     ensure_config_param(config, ["train_config", "seed"], of_type(int))
-    ensure_config_param(config, ["train_config", "train_method"], one_of(("lstsq", "sgd")), dflt="sgd")
 
-    if config["train_config"]["train_method"] == "sgd":
-        ensure_config_param(config, ["train_config", "epochs"], _and(of_type(int), gte_zero))
-        ensure_config_param(config, ["train_config", "max_steps"], _and(of_type(int), gte_zero), required=False)
-        ensure_config_param(config, ["train_config", "loss_fn"], of_type(str), "cross_entropy")
-        ensure_config_param(config, ["train_config", "optimizer"], of_type(str), "Adam")
-        ensure_config_param(config, ["train_config", "optimizer_args"], of_type(dict), {"lr": 0.1})
-        ensure_config_param(config, ["train_config", "lr_scheduler"], of_type(str), required=False)
-        ensure_config_param(config, ["train_config", "lr_scheduler_args"], of_type(dict), required=False)
-        ensure_config_param(config, ["train_config", "max_grad_norm"], gte_zero, 0)
+    ensure_config_param(config, ["train_config", "epochs"], _and(of_type(int), gte_zero))
+    ensure_config_param(config, ["train_config", "max_steps"], _and(of_type(int), gte_zero), required=False)
+    ensure_config_param(config, ["train_config", "loss_fn"], of_type(str), "cross_entropy")
+    ensure_config_param(config, ["train_config", "optimizer"], of_type(str), "Adam")
+    ensure_config_param(config, ["train_config", "optimizer_args"], of_type(dict), {"lr": 0.1})
+    ensure_config_param(config, ["train_config", "lr_scheduler"], of_type(str), required=False)
+    ensure_config_param(config, ["train_config", "lr_scheduler_args"], of_type(dict), required=False)
+    ensure_config_param(config, ["train_config", "max_grad_norm"], gte_zero, 0)
 
-        ensure_config_param(config, ["train_config", "aux_losses"], of_type(list), required=False)
-        for i, elem in enumerate(config["train_config"].get("aux_losses", [])):
-            if not isinstance(elem, dict):
-                raise RuntimeError('Each item in "aux_losses" should be a config with two elements.'
-                                   f" Instead, we found a {type(elem)} in position {i}.")
-            try:
-                ensure_config_param(elem, "output", of_type(str))
-                ensure_config_param(elem, "loss_fn", of_type(str))
-                ensure_config_param(elem, "weight", gte_zero, required=False)
-            except RuntimeError as e:
-                raise RuntimeError(f'In position {i} of "aux_losses": {str(e)}')
+    ensure_config_param(config, ["train_config", "aux_losses"], of_type(list), required=False)
+    for i, elem in enumerate(config["train_config"].get("aux_losses", [])):
+        if not isinstance(elem, dict):
+            raise RuntimeError('Each item in "aux_losses" should be a config with two elements.'
+                               f" Instead, we found a {type(elem)} in position {i}.")
+        try:
+            ensure_config_param(elem, "output", of_type(str))
+            ensure_config_param(elem, "loss_fn", of_type(str))
+            ensure_config_param(elem, "weight", gte_zero, required=False)
+        except RuntimeError as e:
+            raise RuntimeError(f'In position {i} of "aux_losses": {str(e)}')
 
     ensure_config_param(config, "metrics", of_type(list), [{"metric_fn": "accuracy"}])
     for i, elem in enumerate(config.get("metrics", [])):

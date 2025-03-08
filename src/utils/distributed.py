@@ -39,6 +39,9 @@ def init_distributed_mode(config):
         config["distributed"] = False
         return
 
+    if not torch.cuda.is_available():
+        raise RuntimeError(f"Distributed training was requested, but no GPU was found.")
+
     config["distributed"] = True
 
     torch.cuda.set_device(config["gpu"])

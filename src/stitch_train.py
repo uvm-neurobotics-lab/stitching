@@ -2,7 +2,7 @@
 A script to train an architecture and store the training trajectory in the corresponding cache.
 
 To test this script, try:
-    python stitch_train.py -c tests/stitch-resnet-18.yml --st
+    python src/stitch_train.py -c tests/stitch-resnet-18.yml --st
 """
 
 import logging
@@ -43,7 +43,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser = argutils.create_parser(desc, allow_abbrev=allow_abbrev)
     parser.add_argument("-c", "--config", metavar="FILE", type=argutils.existing_path, required=True,
                         help="Training config file.")
-    datasets.add_dataset_arg(parser, dflt_data_dir=Path(__file__).parent / "data")
+    datasets.add_dataset_arg(parser, dflt_data_dir=Path(__file__).parent.parent / "data")
 
     # Output/checkpoint args.
     parser.add_argument("--print-freq", default=10, type=int, metavar="N", help="Print frequency.")
@@ -53,7 +53,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="Do not evaluate each checkpoint on the entire train/test set. This can speed up training"
                              " but the downside is that you will be relying on training batches only for tracking the"
                              " progress of training.")
-    parser.add_argument("-o", "--output", "--dest", metavar="FOLDER", dest="save_dir", type=Path,
+    parser.add_argument("-o", "--output", "--dest", metavar="FOLDER", dest="save_dir", type=Path, default=Path("."),
                         help="Location to save the model checkpoints. By default, they will be saved in the current "
                              "directory.")
     parser.add_argument("--start-epoch", metavar="N", default=0, type=int, help="Start epoch.")
@@ -70,9 +70,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              "current node.")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
                         help="Maximum number of batches. Useful for quick testing/debugging.")
-    parser.add_argument("--world-size", default=-1, type=int, metavar="N",
-                        help="Number of nodes for distributed processing.")
-    parser.add_argument("--rank", default=-1, type=int, metavar="N", help="Node rank for distributed processing.")
+    parser.add_argument("--world-size", type=int, metavar="N", help="Number of nodes for distributed processing.")
+    parser.add_argument("--rank", type=int, metavar="N", help="Node rank for distributed processing.")
     parser.add_argument("--dist-url", default="tcp://224.66.41.62:23456", type=str, metavar="URL",
                         help="URL used to set up distributed processing.")
     argutils.add_device_arg(parser)
@@ -171,11 +170,10 @@ def setup_and_train(parser, config):
         test_sampler = SequentialSampler(test_data)
 
     logging.info(f"Using {config['workers']} workers for data loading.")
-    train_loader = DataLoader(train_data, batch_size=config["batch_size"], sampler=train_sampler,
+    train_loader = DataLoader(train_data, batch_size=config["train_config"]["batch_size"], sampler=train_sampler,
                               num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
-    test_loader = DataLoader(test_data, batch_size=config["batch_size"], shuffle=test_sampler is None,
-                             sampler=test_sampler, num_workers=config["workers"], pin_memory=True,
-                             persistent_workers=config["workers"] > 1)
+    test_loader = DataLoader(test_data, batch_size=config["train_config"]["batch_size"], sampler=test_sampler,
+                             num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
 
     logging.info("Constructing model.")
     model = Assembly(config["blocks"], config["adapters"], use_head=config.get("use_head"),
