@@ -113,6 +113,9 @@ class eval_mode(torch.inference_mode):
         self.module = module
         self.prev_train = False
 
+    def __new__(cls, module):
+        return super().__new__(cls)
+
     def __enter__(self):
         super().__enter__()
         self.prev_train = self.module.training
@@ -123,7 +126,7 @@ class eval_mode(torch.inference_mode):
         self.module.train(self.prev_train)
 
 
-def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\t", print_fn=None, print_freq=100):
+def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\t", print_fn=None, print_freq=10):
     """
     Evaluate the model on each batch and return the average over all samples for all given metric functions. Metric
     functions should follow the signature:
@@ -377,7 +380,7 @@ class StandardLog(BaseLog):
                         if k.startswith("Batch "):  # Turn "Batch" metrics into "Overall" metrics.
                             k = k[6:]
                         summaries[k].update(v, self.recorded_counts.get(step, 1))
-            for mname, val in summaries:
+            for mname, val in summaries.items():
                 val.synchronize_between_processes()
                 self.record({"Overall/Train " + mname: val.global_avg}, it)
                 if (not self.metrics_to_print) or (mname in self.metrics_to_print):
@@ -398,6 +401,7 @@ class StandardLog(BaseLog):
             metric_fns = self.metric_fns
 
         # Compute metrics.
+        # TODO: may want to separate out metrics which are independent of batch size. Epoch, loss, img per sec, max mem
         metrics = {"Epoch": epoch, "Loss": loss.item(), **{k: v.item() for k, v in all_losses.items()}}
         for metric in metric_fns:
             md = metric(out, labels)
@@ -410,11 +414,6 @@ class StandardLog(BaseLog):
         batch_size = len(labels)
         metrics["Time/Step"] = time() - self.step_end_time
         metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
-        time_per_step = (time() - self.start_time) / it
-        metrics["Time/ETA"] = time_per_step * (self.expected_steps - it)
-        # Special format for ETA.
-        if "Time/ETA" not in self.smoothed_metrics:
-            self.smoothed_metrics["Time/ETA"] = SmoothedValue(fmt="{str(datetime.timedelta(seconds=int(value)))}")
         if torch.cuda.is_available():
             metrics["Max Mem"] = torch.cuda.max_memory_allocated() / 1024.0 / 1024.0
 
@@ -424,13 +423,16 @@ class StandardLog(BaseLog):
         # Finally, print metrics periodically.
         time_to_print = (it % self.print_freq == 0 or it == 1)  # Force print on the first step.
         if time_to_print:
+            time_per_step = (time() - self.start_time) / it
+            eta = time_per_step * (self.expected_steps - it)
             msg = [f"Epoch {epoch}",
                    f"[{it - self.epoch_start_step + 1:{str(len(str(self.steps_in_epoch)))}d}/{self.steps_in_epoch}]",
+                   f"ETA: {datetime.timedelta(seconds=int(eta))}",
                    f"Batch Loss: {loss.item():.3f}"]
             for mk, mv in self.smoothed_metrics.items():
                 if (not self.metrics_to_print) or (mk in self.metrics_to_print):
                     mv.synchronize_between_processes()
-                    msg.append(f"{mk}: {mv:.3f}")
+                    msg.append(f"{mk}: {mv}")
             self.info(self.delimiter.join(msg))
 
         self.step_end_time = time()

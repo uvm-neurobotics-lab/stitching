@@ -13,7 +13,7 @@ import yaml
 from torch.nn.utils import clip_grad_norm_
 
 from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type
-from utils.logging import overall_metrics, StandardLog
+from utils.logging import StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
                                 optimizer_from_config, scheduler_from_config)
 
@@ -182,24 +182,6 @@ def filesafe_model_name(model):
     if not hasattr(model, "get_hash"):
         return ""
     return filesafe_str(model.get_hash()).strip("-")
-
-
-def eval_model(model: torch.nn.Module, train_loader, valid_loaders, config, device="cuda", print_fn=None):
-    """
-    Evaluate the given model on the given data loaders, using metrics specified by the given config.
-
-    Returns:
-        dict: A mapping of resulting metrics averaged over each data loader.
-    """
-    # NOTE: The model will automatically be placed into eval mode by the config.
-    model.to(device)
-    metric_fns = metric_fns_from_config(config, model)
-    loaders = {"Train": train_loader, **{k.capitalize(): v for k, v in valid_loaders.items()}}
-
-    metrics = {}
-    for key, loader in loaders.items():
-        metrics[key] = overall_metrics(model, loader, metric_fns, device, print_fn=print_fn)
-    return metrics
 
 
 def as_training_metrics(metrics):

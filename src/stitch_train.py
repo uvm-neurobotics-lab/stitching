@@ -178,7 +178,7 @@ def setup_and_train(parser, config):
     logging.info("Constructing model.")
     model = Assembly(config["blocks"], config["adapters"], use_head=config.get("use_head"),
                      use_base=config.get("use_base"), base_adapter=config.get("base_adapter"),
-                     all_fixed=config.get("frozen", True), input_shape=input_shape, num_classes=num_classes)
+                     block_fixed=config.get("frozen", True), input_shape=input_shape, num_classes=num_classes)
     model.to(device)
 
     training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)

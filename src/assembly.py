@@ -45,7 +45,6 @@ class Assembly(nn.Module):
             use_base=False,
             base_adapter=None,
             block_fixed=True,
-            all_fixed=False,
             base_channels=64,
             input_shape=None,
             num_classes=None,
@@ -105,10 +104,6 @@ class Assembly(nn.Module):
 
         if block_fixed:
             for param in self.blocks.parameters():
-                param.requires_grad = False
-
-        if all_fixed:
-            for param in self.parameters():
                 param.requires_grad = False
 
     def trunk_forward(self, x):
