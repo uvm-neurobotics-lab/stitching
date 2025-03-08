@@ -119,7 +119,7 @@ class eval_mode(torch.inference_mode):
         self.module.train(False)
 
     def __exit__(self, exc_type, exc_value, traceback):
-        super().__exit__()
+        super().__exit__(exc_type, exc_value, traceback)
         self.module.train(self.prev_train)
 
 
@@ -192,96 +192,6 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
     return result
 
 
-class MetricLogger:
-    def __init__(self, delimiter="\t"):
-        self.meters = defaultdict(SmoothedValue)
-        self.delimiter = delimiter
-
-    def update(self, **kwargs):
-        for k, v in kwargs.items():
-            if isinstance(v, torch.Tensor):
-                v = v.item()
-            assert isinstance(v, (float, int))
-            self.meters[k].update(v)
-
-    def __getattr__(self, attr):
-        if attr in self.meters:
-            return self.meters[attr]
-        if attr in self.__dict__:
-            return self.__dict__[attr]
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
-
-    def __str__(self):
-        loss_str = []
-        for name, meter in self.meters.items():
-            loss_str.append(f"{name}: {str(meter)}")
-        return self.delimiter.join(loss_str)
-
-    def synchronize_between_processes(self):
-        for meter in self.meters.values():
-            meter.synchronize_between_processes()
-
-    def add_meter(self, name, meter):
-        self.meters[name] = meter
-
-    def log_every(self, iterable, print_freq, header=None):
-        i = 0
-        if not header:
-            header = ""
-        start_time = time()
-        end = time()
-        iter_time = SmoothedValue(fmt="{avg:.4f}")
-        data_time = SmoothedValue(fmt="{avg:.4f}")
-        space_fmt = ":" + str(len(str(len(iterable)))) + "d"
-        if torch.cuda.is_available():
-            log_msg = self.delimiter.join(
-                [
-                    header,
-                    "[{0" + space_fmt + "}/{1}]",
-                    "eta: {eta}",
-                    "{meters}",
-                    "time: {time}",
-                    "data: {data}",
-                    "max mem: {memory:.0f}",
-                ]
-            )
-        else:
-            log_msg = self.delimiter.join(
-                [header, "[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}", "data: {data}"]
-            )
-        MB = 1024.0 * 1024.0
-        for obj in iterable:
-            data_time.update(time() - end)
-            yield obj
-            iter_time.update(time() - end)
-            if i % print_freq == 0:
-                eta_seconds = iter_time.global_avg * (len(iterable) - i)
-                eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
-                if torch.cuda.is_available():
-                    print(
-                        log_msg.format(
-                            i,
-                            len(iterable),
-                            eta=eta_string,
-                            meters=str(self),
-                            time=str(iter_time),
-                            data=str(data_time),
-                            memory=torch.cuda.max_memory_allocated() / MB,
-                        )
-                    )
-                else:
-                    print(
-                        log_msg.format(
-                            i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
-                        )
-                    )
-            i += 1
-            end = time()
-        total_time = time() - start_time
-        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print(f"{header} Total time: {total_time_str}")
-
-
 class BaseLog:
 
     def __init__(self, metric_fns, metrics_to_print, eval_freq, save_freq, save_dir=None, model_name="",
@@ -352,14 +262,18 @@ class BaseLog:
     @torch.inference_mode()
     def maybe_save_and_eval(self, it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
                             should_eval=None, should_save=None):
-        # Turn on saving if it is time to save, or if the caller requires it.
-        should_save = bool(should_save) or (self.save_freq > 0 and it % self.save_freq == 0)
-        # Do not save if the model for this iteration was already saved (the same iteration can be called twice).
+        # If the caller has made a particular request, honor it. Otherwise...
+        if should_save is None:
+            # Turn on saving if it is time to save.
+            should_save = self.save_freq > 0 and it % self.save_freq == 0
+        # But do not save if the model for this iteration was already saved (the same iteration can be called twice).
         should_save &= (it != self.last_save_step)
-        # Eval if it is time to eval or save...
-        should_eval = ((bool(should_eval) or bool(should_save) or it % self.eval_freq == 0)
-                       and it != self.last_eval_step  # but not if we already did it,
-                       and self.eval_freq > 0)  # and not if we don't want it at all.
+        # If the caller has made a particular request, honor it. Otherwise...
+        if should_eval is None:
+            # Eval if it is time to eval or save.
+            should_eval = should_save or (self.eval_freq > 0 and it % self.eval_freq == 0)
+        should_eval &= (it != self.last_eval_step)  # but not if we already did it.
+
         metrics = {"Epoch": epoch}
 
         # Run a test on the full dataset.
@@ -407,15 +321,18 @@ class BaseLog:
             dist.save_on_master(checkpoint, self.save_dir / "checkpoint.pth")
 
         # Keep track of total time elapsed during training.
-        metrics["Time/Total"] = time() - self.start_time
+        if self.start_time is not None:
+            metrics["Time/Total"] = time() - self.start_time
+
         self.record(metrics, it)
 
     def close(self, it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
               should_eval=True, should_save=True):
         self.maybe_save_and_eval(it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
                                  should_eval, should_save)
-        total_time_str = str(datetime.timedelta(seconds=int(time() - self.start_time)))
-        self.info(f"Training Complete. Time: {total_time_str}")
+        if self.start_time is not None:
+            total_time_str = str(datetime.timedelta(seconds=int(time() - self.start_time)))
+            self.info(f"Training Complete. Time: {total_time_str}")
         return self.recorded_metrics
 
 

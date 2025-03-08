@@ -183,7 +183,7 @@ def setup_and_train(parser, config):
                      all_fixed=config.get("frozen", True), input_shape=input_shape, num_classes=num_classes)
     model.to(device)
 
-    training.train(config, model, train_loader, test_loader, train_sampler, device)
+    training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
 
 
 def main(argv=None):
