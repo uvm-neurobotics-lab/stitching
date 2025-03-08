@@ -247,7 +247,7 @@ class BaseLog:
             self.recorded_counts[it] = batch_size
 
         for k, v in metrics.items():
-            self.smoothed_metrics[k].update(v, batch_size)
+            self.smoothed_metrics[k].update(v, batch_size if batch_size else 1)
 
         if self.use_wandb:
             # Turn the keys into strings for Weights and Biases.

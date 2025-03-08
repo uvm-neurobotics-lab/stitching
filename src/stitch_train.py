@@ -57,7 +57,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="Location to save the model checkpoints. By default, they will be saved in the current "
                              "directory.")
     parser.add_argument("--start-epoch", metavar="N", default=0, type=int, help="Start epoch.")
-    parser.add_argument("--resume-from", "--resume", metavar="FILE", default="", type=argutils.existing_path,
+    parser.add_argument("--resume-from", "--resume", metavar="FILE", type=argutils.existing_path,
                         help="Path of checkpoint to resume from.")
     parser.add_argument("--test-only", dest="test_only", action="store_true", help="Only test the model.")
 

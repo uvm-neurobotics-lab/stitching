@@ -71,8 +71,8 @@ class Assembly(nn.Module):
         blocks = []
         block_types = []
         for block_cfg in block_list:
-            model_name = block_cfg["model_name"]
-            block_types.append(MODEL_ZOO[model_name]["type"])
+            base_model_name = block_cfg["model_name"]
+            block_types.append(MODEL_ZOO[base_model_name.split(".")[0]]["type"])
             blocks.append(load_subnet(**block_cfg))
         self.blocks = nn.ModuleList(blocks)
         self.block_types = block_types
