@@ -12,7 +12,7 @@
 # Architecture to assemble. A series of blocks with adapters in between each.
 blocks:
   - backend: timm
-    model_name: mobilenetv3_large_100.ra_in1k
+    model_name: mobilenetv3_large_100.miil_in21k_ft_in1k
     block_input: x
     block_output: blocks.2
   - backend: timm
