@@ -4,12 +4,25 @@ What is possible with neural network stitching?
 
 # Setup
 
-Install necessary dependencies using the provided environment file:
-```
-conda create -f environment.yml
+You can install necessary dependencies using the provided environment file:
+```shell
+conda env create -f environment.yml
 conda activate stitch
 ```
-Or manually install the packages listed there.
+However, many users will need to install PyTorch manually, based on their specific system configuration. In that case,
+ 1. Create an environment (using your preferred Python version): `conda create -n stitch python=3.11`
+ 1. Activate: `conda activate stitch`
+ 1. [Install PyTorch **and** Torchvision](https://pytorch.org/get-started/locally/) first.
+ 1. Manually install the rest of the packages listed in [environment.yml](environment.yml). Install `conda` packages
+    before `pip` packages.
+    - _Note:_ The `wandb` package comes from the `conda-forge` channel: `conda install wandb -c conda-forge`
+
+For convenience, you may consider setting up a symlink to the folder that contains your datasets. Otherwise you must
+specify the `--data-path` when you run. For instance:
+```shell
+cd stitching
+ln -s ~/datasets ./data
+```
 
 # Organization
 

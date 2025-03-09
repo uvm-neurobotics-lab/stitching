@@ -5,8 +5,6 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - pytorch::pytorch
-  - torchvision
   - jupyter
   - seaborn
   - tqdm
@@ -14,5 +12,7 @@ dependencies:
   - tabulate
   - wandb  # optional
   - pip:
+      - torch
+      - torchvision
       - pyyaml-include  # optional
       - timm  # optional
