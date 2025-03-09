@@ -10,18 +10,18 @@
 #
 
 # Architecture to assemble. A series of blocks with adapters in between each.
-blocks:  # TODO: remove quotes from these? unneeded?
-  - backend: "timm"
-    model_name: "mobilenetv3_large_100.miil_in21k_ft_in1k"
-    block_input: "x"
-    block_output: "blocks.2"
-  - backend: "timm"
-    model_name: "mobilenetv3_large_100.ra_in1k"
-    block_input: "blocks.3"
-    block_output: "classifier.linear"
+blocks:
+  - backend: timm
+    model_name: mobilenetv3_large_100.ra_in1k
+    block_input: x
+    block_output: blocks.2
+  - backend: timm
+    model_name: mobilenetv3_large_100.ra_in1k
+    block_input: blocks.3
+    block_output: classifier.linear
     output_type: vector
 adapters:
-  - mode: "cnn2cnn"
+  - mode: cnn2cnn
     num_conv: 1
     input_channel: 40
     output_channel: 40
@@ -34,7 +34,7 @@ train_config:
 
   # General Params
   seed: 12345
-  epochs: &epochs 2
+  epochs: &epochs 1
 
   # Optimization
   # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
