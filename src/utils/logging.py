@@ -33,7 +33,7 @@ class SmoothedValue:
     def __init__(self, window_size=20, fmt=None):
         if fmt is None:
             # Default format: <recent value> (<all-time avg>)
-            fmt = "{median:.3f} ({global_avg:.3f})"
+            fmt = "{value:.3f} ({global_avg:.3f})"
         self.fmt = fmt
         self.deque = deque(maxlen=window_size)
         self.total = 0.0
@@ -174,6 +174,8 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
                     log_msg.append(f"Max Mem: {torch.cuda.max_memory_allocated() / 1024.0 / 1024.0:.0f} MB")
                 print_fn(delimiter.join(log_msg))
 
+            end = time()
+
     num_processed_samples = dist.reduce_across_processes(num_processed_samples)
     if (hasattr(data_loader.dataset, "__len__")
             and len(data_loader.dataset) != num_processed_samples
@@ -189,8 +191,7 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
         meter.synchronize_between_processes()
     result = {k: meter.global_avg for k, meter in metric_values.items()}
 
-    end = time()
-    result["Time/Eval Total"] = end - start
+    result["Time/Eval Total"] = time() - start
 
     return result
 
