@@ -300,9 +300,9 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, conf
         saved_opt_state = limit_model_optimization(model, opt_params)
 
     model.train()
-    for images, labels in train_loader:
+    for batch in train_loader:
         log.begin_step(step, epoch)
-        total_loss, losses, out = run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm, device)
+        total_loss, losses, out, labels = run_one_step(batch, model, optimizer, loss_fns, max_grad_norm, device)
         log.end_step(step, epoch, total_loss, out, labels, model, all_losses=losses)
         step += 1
         if step > max_steps:
@@ -316,8 +316,9 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, conf
     return step
 
 
-def run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm=0, device=None):
+def run_one_step(batch, model, optimizer, loss_fns, max_grad_norm=0, device=None):
     # Move data to GPU once loaded.
+    images, labels = batch
     images, labels = images.to(device), labels.to(device)
 
     # Forward pass.
@@ -331,7 +332,7 @@ def run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm=0, de
         clip_grad_norm_(model.parameters(), max_grad_norm)
     optimizer.step()
 
-    return loss, losses, out
+    return loss, losses, out, labels
 
 
 def forward_pass(model, ims, labels, loss_fns):
