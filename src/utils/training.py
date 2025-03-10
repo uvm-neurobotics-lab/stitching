@@ -66,7 +66,6 @@ def check_train_config(config: dict):
         RuntimeError: if the config is invalid.
     """
 
-    ensure_config_param(config, "gpu", _and(of_type(int), gte_zero))
     ensure_config_param(config, "verbose", _and(of_type(int), gte_zero), required=False)
     ensure_config_param(config, "save_checkpoints", of_type(bool), required=False)
     ensure_config_param(config, "eval_checkpoints", of_type(bool), required=False)
@@ -239,7 +238,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     # Set up distributed training and checkpointing behavior.
     model_without_ddp = model
     if config["distributed"]:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config["gpu"]])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])
         model_without_ddp = model.module
 
     if config.get("resume_from"):
@@ -302,7 +301,7 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, conf
     model.train()
     for images, labels in train_loader:
         log.begin_step(step, epoch)
-        total_loss, losses, out = run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm, device)
+        total_loss, losses, out, labels = run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm, device)
         log.end_step(step, epoch, total_loss, out, labels, model, all_losses=losses)
         step += 1
         if step > max_steps:
@@ -331,7 +330,7 @@ def run_one_step(images, labels, model, optimizer, loss_fns, max_grad_norm=0, de
         clip_grad_norm_(model.parameters(), max_grad_norm)
     optimizer.step()
 
-    return loss, losses, out
+    return loss, losses, out, labels
 
 
 def forward_pass(model, ims, labels, loss_fns):

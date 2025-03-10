@@ -70,12 +70,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              "current node.")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
                         help="Maximum number of batches. Useful for quick testing/debugging.")
-    parser.add_argument("--world-size", type=int, metavar="N", help="Number of nodes for distributed processing.")
-    parser.add_argument("--rank", type=int, metavar="N", help="Node rank for distributed processing.")
-    parser.add_argument("--dist-url", default="tcp://224.66.41.62:23456", type=str, metavar="URL",
-                        help="URL used to set up distributed processing.")
     argutils.add_device_arg(parser)
-    parser.add_argument("--gpu", default=None, type=int, help="GPU ID to use.")
     parser.add_argument("--deterministic", action="store_true", help="Use only deterministic algorithms.")
 
     # Other args.
@@ -111,7 +106,6 @@ def validate_config(config):
     ensure_config_param(config, "base_adapter", of_type(dict), required=False)
 
     # Now check values related to training the model.
-    ensure_config_param(config, "gpu", _and(of_type(int), gte_zero), dflt=0)
     training.check_train_config(config)
 
     return config
@@ -129,8 +123,7 @@ def prep_config(parser, args):
     config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
                                                            "eval_checkpoints", "resume_from", "start_epoch",
                                                            "test_only", "save_dir", "id", "project", "entity", "group",
-                                                           "dist_url", "world_size", "rank", "device", "gpu", "workers",
-                                                           "deterministic", "verbose"])
+                                                           "device", "workers", "deterministic", "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
@@ -183,6 +176,7 @@ def setup_and_train(parser, config):
     model.to(device)
 
     training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
+    return 0
 
 
 def main(argv=None):
@@ -191,7 +185,10 @@ def main(argv=None):
 
     config = prep_config(parser, args)
 
-    setup_and_train(parser, config)
+    try:
+        return setup_and_train(parser, config)
+    finally:
+        dist.tear_down_distributed_mode()
 
 
 if __name__ == "__main__":

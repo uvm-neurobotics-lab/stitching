@@ -164,6 +164,7 @@ cython_debug/
 # Local data and outputs
 data
 experiments
+wandb
 **.pth
 **.pkl
 
