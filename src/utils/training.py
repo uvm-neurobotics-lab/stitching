@@ -66,7 +66,6 @@ def check_train_config(config: dict):
         RuntimeError: if the config is invalid.
     """
 
-    ensure_config_param(config, "gpu", _and(of_type(int), gte_zero))
     ensure_config_param(config, "verbose", _and(of_type(int), gte_zero), required=False)
     ensure_config_param(config, "save_checkpoints", of_type(bool), required=False)
     ensure_config_param(config, "eval_checkpoints", of_type(bool), required=False)
@@ -239,7 +238,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     # Set up distributed training and checkpointing behavior.
     model_without_ddp = model
     if config["distributed"]:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config["gpu"]])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])
         model_without_ddp = model.module
 
     if config.get("resume_from"):

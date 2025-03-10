@@ -1,6 +1,7 @@
 """
 Utilities for distributed training.
 """
+import logging
 import os
 
 import torch
@@ -11,6 +12,8 @@ def setup_distributed_printing(is_master):
     """
     This function disables printing when not in master process
     """
+
+    # Override the print() function.
     import builtins as __builtin__
 
     builtin_print = __builtin__.print
@@ -23,19 +26,22 @@ def setup_distributed_printing(is_master):
 
     __builtin__.print = print
 
+    # Override python logging.
+    if not is_master:
+        for h in logging.root.handlers:
+            h.flush()
+        logging.root.setLevel(logging.WARN)
+
 
 def init_distributed_mode(config):
-    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+    if "WORLD_SIZE" in os.environ:
+        # Distributed mode via torchrun.
         config["rank"] = int(os.environ["RANK"])
         config["world_size"] = int(os.environ["WORLD_SIZE"])
-        config["gpu"] = int(os.environ["LOCAL_RANK"])
-    elif "SLURM_PROCID" in os.environ:
-        config["rank"] = int(os.environ["SLURM_PROCID"])
-        config["gpu"] = config["rank"] % torch.cuda.device_count()
-    elif "rank" in config:
-        pass
+        config["device"] = int(os.environ["LOCAL_RANK"])
     else:
-        print("Not using distributed mode.")
+        # Non-distributed.
+        logging.info("Not using distributed mode.")
         config["distributed"] = False
         return
 
@@ -44,13 +50,18 @@ def init_distributed_mode(config):
 
     config["distributed"] = True
 
-    torch.cuda.set_device(config["gpu"])
+    torch.cuda.set_device(config["device"])
     config["dist_backend"] = "nccl"
-    print(f"| distributed init (rank {config['rank']}): {config['dist_url']}", flush=True)
-    torch.distributed.init_process_group(backend=config["dist_backend"], init_method=config["dist_url"],
-                                         world_size=config["world_size"], rank=config["rank"])
+    logging.info(f"Distributed init: rank {config['rank']}, GPU {config['device']}")
+    torch.distributed.init_process_group(backend=config["dist_backend"], world_size=config["world_size"],
+                                         rank=config["rank"], device_id=torch.device(config["device"]))
     torch.distributed.barrier()
     setup_distributed_printing(config["rank"] == 0)
+
+
+def tear_down_distributed_mode():
+    if is_dist_avail_and_initialized():
+        dist.destroy_process_group()
 
 
 def is_dist_avail_and_initialized():
