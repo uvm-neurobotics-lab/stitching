@@ -3,6 +3,8 @@ A script to train an architecture and store the training trajectory in the corre
 
 To test this script, try:
     WANDB_MODE=disabled python src/stitch_train.py -c tests/stitch-mobilenetv3.yml --st
+To run distributed, use torchrun and specify number of workers. For example, on a single node with 8 GPUs and 48 CPUs:
+    WANDB_MODE=disabled torchrun --nproc-per-node=8 src/stitch_train.py -c tests/stitch-mobilenetv3.yml -j 6
 """
 
 import logging
@@ -53,7 +55,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="Do not evaluate each checkpoint on the entire train/test set. This can speed up training"
                              " but the downside is that you will be relying on training batches only for tracking the"
                              " progress of training.")
-    parser.add_argument("-o", "--output", "--dest", metavar="FOLDER", dest="save_dir", type=Path, default=Path("."),
+    parser.add_argument("-o", "--output", "--dest", metavar="FOLDER", dest="save_dir", type=Path,
+                        default=Path(".").resolve(),
                         help="Location to save the model checkpoints. By default, they will be saved in the current "
                              "directory.")
     parser.add_argument("--start-epoch", metavar="N", default=0, type=int, help="Start epoch.")
@@ -65,9 +68,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("-j", "--workers", default=NUM_CORES, type=int, metavar="N",
                         help="Number of data loading workers. Defaults to the number of cores detected on the current "
                              "node.")
-    parser.add_argument("-b", "--batch-size", default=256, type=int, metavar="N",
-                        help="Mini-batch size. When distributed, this is the total batch size of all GPUs on the "
-                             "current node.")
+    parser.add_argument("-b", "--batch-size", default=32, type=int, metavar="N",
+                        help="Mini-batch size. When distributed, the total batch size is (num GPUs * batch size).")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
                         help="Maximum number of batches. Useful for quick testing/debugging.")
     argutils.add_device_arg(parser)
@@ -136,8 +138,7 @@ def prep_config(parser, args):
         config["save_checkpoints"] = True
         config["eval_checkpoints"] = True
         config["checkpoint_initial_model"] = False
-        config["train_config"]["max_batches"] = 3
-        config["train_config"]["max_steps"] = 3
+        config["train_config"]["max_batches"] = 3 * os.environ.get("WORLD_SIZE", 1)
         config["train_config"]["epochs"] = 1
 
     return validate_config(config)

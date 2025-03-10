@@ -33,7 +33,7 @@ class SmoothedValue:
     def __init__(self, window_size=20, fmt=None):
         if fmt is None:
             # Default format: <recent value> (<all-time avg>)
-            fmt = "{value:.3f} ({global_avg:.3f})"
+            fmt = "{value:.3f} ({median:.3f})"
         self.fmt = fmt
         self.deque = deque(maxlen=window_size)
         self.total = 0.0
@@ -166,7 +166,7 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
             if i % print_freq == 0:
                 log_msg = [
                     f"{header} Eval",
-                    f"[{i:{str(len(str(nbatches)))}d}/{nbatches}]",
+                    f"[{i+1:{str(len(str(nbatches)))}d}/{nbatches}]",
                     f"Iter Time: {iter_time}",
                     f"Data Time: {data_time}",
                 ]

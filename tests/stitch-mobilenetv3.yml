@@ -6,7 +6,7 @@
 #
 # Stitching this seeks to produce a similar result to those from Bansal et al. "Revisiting Model Stitching to Compare
 # Neural Representations". 2021. https://arxiv.org/abs/2106.07682
-# In other words, we expect to meet or exceed the performance of 75.8% on ImageNet-1k.
+# In other words, we expect to get close to 75.8% on ImageNet-1k. We find that we generally achieve around 73%.
 #
 
 # Architecture to assemble. A series of blocks with adapters in between each.
