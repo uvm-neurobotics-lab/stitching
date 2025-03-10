@@ -12,6 +12,8 @@ def setup_distributed_printing(is_master):
     """
     This function disables printing when not in master process
     """
+
+    # Override the print() function.
     import builtins as __builtin__
 
     builtin_print = __builtin__.print
@@ -23,6 +25,12 @@ def setup_distributed_printing(is_master):
             builtin_print(*args, **kwargs)
 
     __builtin__.print = print
+
+    # Override python logging.
+    if not is_master:
+        for h in logging.root.handlers:
+            h.flush()
+        logging.root.setLevel(logging.WARN)
 
 
 def init_distributed_mode(config):
@@ -44,7 +52,7 @@ def init_distributed_mode(config):
 
     torch.cuda.set_device(config["device"])
     config["dist_backend"] = "nccl"
-    logging.info(f"Distributed init: rank {config['rank']}, GPU {config['device']}", flush=True)
+    logging.info(f"Distributed init: rank {config['rank']}, GPU {config['device']}")
     torch.distributed.init_process_group(backend=config["dist_backend"], world_size=config["world_size"],
                                          rank=config["rank"], device_id=torch.device(config["device"]))
     torch.distributed.barrier()
