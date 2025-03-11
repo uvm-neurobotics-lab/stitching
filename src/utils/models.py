@@ -25,7 +25,7 @@ WORKING_MODELS = ['resnet50', 'resnet101', 'resnet18',
 
 # TODO: These block splits often skip over some downsamples and maxpools, which could be useful to have separate.
 MODEL_ZOO = {
-    'resnet18': {"backend": "pytorch",
+    'resnet18': {"backend": "timm",
                  "type": "cnn",
                  "blocks": ['layer1.0', 'layer1.1', 'layer2.0', 'layer2.1',
                             'layer3.0', 'layer3.1', 'layer4.0', 'layer4.1']},

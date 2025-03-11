@@ -1,0 +1,56 @@
+#
+# Test config for stitching two different chunks of a ResNet-18. Here are some different versions of the model we can
+# pull from:
+#  - resnet18.fb_swsl_ig1b_ft_in1k:    73.3% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
+#  - resnet18.fb_ssl_yfcc100m_ft_in1k: 72.6% (Pretrained on YFCC100M using SSL, then fine-tuned on IN-1k)
+#  - resnet18.a1_in1k:                 71.5% (ResNet Strikes Back A1 recipe)
+#  - resnet18.a2_in1k:                 70.6% (ResNet Strikes Back A2 recipe)
+#  - resnet18.a3_in1k:                 68.2% (ResNet Strikes Back A3 recipe)
+#  - resnet18.gluon_in1k:              70.8% (Bag-of-Tricks based recipe)
+#  - resnet18.tv_in1k:                 69.8% (Original Torchvision model)
+#
+# The cut point configured below is about halfway through the model. Bottom two blocks + top two blocks.
+#
+# Stitching this seeks to produce a similar result to those from Bansal et al. "Revisiting Model Stitching to Compare
+# Neural Representations". 2021. https://arxiv.org/abs/2106.07682
+# In other words, we expect to get close to 71% on ImageNet-1k by stitching A1 and A2. Stitching lesser models like
+# Gluon and TV should get more like 69%.
+#
+
+# Architecture to assemble. A series of blocks with adapters in between each.
+blocks:
+  - backend: timm
+    model_name: resnet18.a1_in1k
+    block_input: x
+    block_output: layer2
+  - backend: timm
+    model_name: resnet18.a2_in1k
+    block_input: layer3
+    block_output: classifier.linear
+    output_type: vector
+adapters:
+  - mode: cnn2cnn
+    num_conv: 1
+    input_channel: 128
+    output_channel: 128
+    nonlinearity: false
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 1
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: Adam
+  lr: 1.0e-3
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
