@@ -18,13 +18,12 @@ def setup_distributed_printing(is_master):
 
     builtin_print = __builtin__.print
 
-    # noinspection PyShadowingBuiltins
-    def print(*args, **kwargs):
+    def myprint(*args, **kwargs):
         force = kwargs.pop("force", False)
         if is_master or force:
             builtin_print(*args, **kwargs)
 
-    __builtin__.print = print
+    __builtin__.print = myprint
 
     # Override python logging.
     if not is_master:
