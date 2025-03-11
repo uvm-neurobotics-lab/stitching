@@ -26,7 +26,7 @@ blocks:
   - backend: timm
     model_name: resnet18.a2_in1k
     block_input: layer3
-    block_output: classifier.linear
+    block_output: fc
     output_type: vector
 adapters:
   - mode: cnn2cnn
