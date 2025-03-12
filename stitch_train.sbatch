@@ -9,7 +9,7 @@
 #SBATCH --gpus-per-task=8
 #SBATCH --mem-per-gpu=25G
 
-if [[ "$SLURM_NTASKS" -ne "$SLURM_JOB_NUM_NODES" ]]; then
+if [[ "$SLURM_JOB_NUM_NODES" -ne 1 && "$SLURM_JOB_NUM_NODES" -ne "$SLURM_NTASKS" ]]; then
     echo "Error: unfortunately, --ntasks ($SLURM_NTASKS) and --nodes ($SLURM_JOB_NUM_NODES) must be equal."
     exit 1
 fi
