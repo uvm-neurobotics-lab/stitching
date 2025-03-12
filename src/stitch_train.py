@@ -138,7 +138,7 @@ def prep_config(parser, args):
         config["save_checkpoints"] = True
         config["eval_checkpoints"] = True
         config["checkpoint_initial_model"] = False
-        config["train_config"]["max_batches"] = 3 * os.environ.get("WORLD_SIZE", 1)
+        config["train_config"]["max_batches"] = 3 * int(os.environ.get("WORLD_SIZE", 1))
         config["train_config"]["epochs"] = 1
 
     return validate_config(config)
