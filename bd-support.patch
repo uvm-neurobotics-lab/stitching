@@ -1,0 +1,83 @@
+diff --git a/src/utils/distributed.py b/src/utils/distributed.py
+index c511999..e238f0d 100644
+--- a/src/utils/distributed.py
++++ b/src/utils/distributed.py
+@@ -53,7 +53,7 @@ def init_distributed_mode(config):
+     config["dist_backend"] = "nccl"
+     logging.info(f"Distributed init: rank {config['rank']}, GPU {config['device']}")
+     torch.distributed.init_process_group(backend=config["dist_backend"], world_size=config["world_size"],
+-                                         rank=config["rank"], device_id=torch.device(config["device"]))
++                                         rank=config["rank"])
+     torch.distributed.barrier()
+     setup_distributed_printing(config["rank"] == 0)
+ 
+diff --git a/src/utils/subgraphs.py b/src/utils/subgraphs.py
+index 37cc660..c1d36db 100644
+--- a/src/utils/subgraphs.py
++++ b/src/utils/subgraphs.py
+@@ -818,7 +818,7 @@ def create_sub_network(
+                 # WARNING: We need unique placeholder names. This is a hack in the hopes that similar names will be
+                 # unlikely, rather than actually doing the work to unsure uniqueness.
+                 new_placeholders.append(graph_module.graph.placeholder(f'subnet_input_{i + 1}'))
+-                to_replace.replace_all_uses_with(new_placeholders[-1], is_after_loc)
++                to_replace.replace_all_uses_with(new_placeholders[-1])
+ 
+         # Remove unused modules / parameters first.
+         node_order = {n: i for i, n in enumerate(graph_module.graph.nodes)}
+@@ -831,7 +831,7 @@ def create_sub_network(
+         def is_side_effectful(node):
+             return node.is_impure() and (earliest_nodedex <= node_order[node] <= latest_nodedex)
+ 
+-        graph_module.graph.eliminate_dead_code(is_side_effectful)
++        graph_module.graph.eliminate_dead_code()
+         graph_module.recompile()  # This call may be unnecessary?
+ 
+         # Remove old input node (its users should now be eliminated).
+diff --git a/stitch_train.sbatch b/stitch_train.sbatch
+index de1e7a3..a82c255 100644
+--- a/stitch_train.sbatch
++++ b/stitch_train.sbatch
+@@ -1,13 +1,13 @@
+ #!/bin/bash
+ 
+ #SBATCH --job-name=stitch
+-#SBATCH --time=00:30:00
+-#SBATCH --partition=dggpu
++#SBATCH --time=03:00:00
++#SBATCH --partition=bdgpu
+ #SBATCH --nodes=1
+ #SBATCH --ntasks=1
+-#SBATCH --cpus-per-task=32
+-#SBATCH --gpus-per-task=8
+-#SBATCH --mem-per-gpu=25G
++#SBATCH --cpus-per-task=48
++#SBATCH --gpus=8
++#SBATCH --mem=200G
+ 
+ if [[ "$SLURM_JOB_NUM_NODES" -ne 1 && "$SLURM_JOB_NUM_NODES" -ne "$SLURM_NTASKS" ]]; then
+     echo "Error: unfortunately, --ntasks ($SLURM_NTASKS) and --nodes ($SLURM_JOB_NUM_NODES) must be equal."
+@@ -28,15 +28,16 @@ conda activate $CONDAENV
+ 
+ head_node=$(hostname)
+ nodes=$SLURM_NTASKS
+-nproc=$SLURM_GPUS_PER_TASK
++nproc=$SLURM_GPUS
+ CMD="src/stitch_train.py ${*:2}"
+ echo "Launching command with $nodes nodes, $nproc GPUs per node, head node $head_node:"
+ echo "    $CMD"
+ 
+-srun torchrun \
+-     --nnodes $nodes \
+-     --nproc-per-node $nproc \
+-     --rdzv_id $RANDOM \
+-     --rdzv_backend c10d \
+-     --rdzv_endpoint $head_node:29500 \
+-     src/stitch_train.py "${@:2}"
++torchrun --nproc_per_node=8 src/stitch_train.py "${@:2}"
++# srun torchrun \
++#      --nnodes $nodes \
++#      --nproc_per_node $nproc \
++#      --rdzv_id $RANDOM \
++#      --rdzv_backend c10d \
++#      --rdzv_endpoint $head_node:29500 \
++#      src/stitch_train.py "${@:2}"
