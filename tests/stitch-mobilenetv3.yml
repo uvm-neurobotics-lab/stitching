@@ -38,7 +38,7 @@ train_config:
 
   # General Params
   seed: 12345
-  epochs: &epochs 1
+  epochs: &epochs 3
 
   # Optimization
   # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
