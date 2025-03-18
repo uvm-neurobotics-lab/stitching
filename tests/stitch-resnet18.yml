@@ -18,22 +18,26 @@
 #
 
 # Architecture to assemble. A series of blocks with adapters in between each.
-blocks:
-  - backend: timm
-    model_name: resnet18.a1_in1k
-    block_input: x
-    block_output: layer2
-  - backend: timm
-    model_name: resnet18.a2_in1k
-    block_input: layer3
-    block_output: fc
-    output_type: vector
-adapters:
-  - mode: cnn2cnn
-    num_conv: 1
-    input_channel: 128
-    output_channel: 128
-    nonlinearity: false
+assembly:
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: x
+      block_output: layer2
+      frozen: true
+  - DeRyAdapter:
+      mode: cnn2cnn
+      num_conv: 1
+      input_channel: 128
+      output_channel: 128
+      nonlinearity: false
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a2_in1k
+      block_input: layer3
+      block_output: fc
+      output_type: vector
+      frozen: true
 
 
 train_config:

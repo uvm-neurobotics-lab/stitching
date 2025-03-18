@@ -20,8 +20,8 @@ import utils.argparsing as argutils
 import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
-from assembly import Assembly
-from utils import ensure_config_param, make_pretty, gte_zero, _and, of_type
+from assembly import Assembly, validate_part, validate_part_list
+from utils import ensure_config_param, make_pretty, _and, of_type
 
 NUM_CORES = os.cpu_count()
 if hasattr(os, "sched_getaffinity"):
@@ -100,12 +100,8 @@ def validate_config(config):
     logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
 
     # First check values for constructing the model.
-    ensure_config_param(config, "blocks", of_type(list))
-    ensure_config_param(config, "adapters", of_type(list))
-    ensure_config_param(config, "use_base", of_type(bool), dflt=False)
-    ensure_config_param(config, "use_head", of_type(bool), dflt=False)
-    ensure_config_param(config, "frozen", of_type(bool), dflt=True)
-    ensure_config_param(config, "base_adapter", of_type(dict), required=False)
+    ensure_config_param(config, "assembly", _and(of_type(list), validate_part_list))
+    ensure_config_param(config, "head", _and(of_type(dict), validate_part), required=False)
 
     # Now check values related to training the model.
     training.check_train_config(config)
@@ -171,9 +167,7 @@ def setup_and_train(parser, config):
                              num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
 
     logging.info("Constructing model.")
-    model = Assembly(config["blocks"], config["adapters"], use_head=config.get("use_head"),
-                     use_base=config.get("use_base"), base_adapter=config.get("base_adapter"),
-                     block_fixed=config.get("frozen", True), input_shape=input_shape, num_classes=num_classes)
+    model = Assembly(config["assembly"], config.get("head"), input_shape=input_shape)
     model.to(device)
 
     training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)

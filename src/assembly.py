@@ -1,13 +1,44 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
-from collections import OrderedDict
+from copy import copy
 
 import torch.nn as nn
 
+import adapters
 import utils
-from adapters import DeRyAdapter
 from utils.models import MODEL_ZOO, load_subnet
+
+
+class Subnet(nn.Module):
+
+    def __init__(self, model_name, output_type=None, **kwargs):
+        super().__init__()
+        self.output_type = output_type
+        self.net_type = MODEL_ZOO[model_name.split(".")[0]]["type"]
+        self.net = load_subnet(model_name=model_name, **kwargs)
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class BaseBlock(nn.Module):
+    """Used as the base of assemblies in the DeRy paper."""
+
+    def __init__(self, input_shape, channels):
+        super().__init__()
+        self.conv = nn.Conv2d(input_shape[0], channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.norm = nn.BatchNorm2d(channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.net_type = "cnn"
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        return x
 
 
 class ClassifierHead(nn.Module):
@@ -18,11 +49,54 @@ class ClassifierHead(nn.Module):
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape}.")
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.linear = nn.Linear(input_shape[0], num_classes)
+        self.net_type = "cnn"
+        self.output_type = "vector"
 
     def forward(self, x):
         x = self.pool(x)
         x = x.view(x.shape[0], -1)
         return self.linear(x)
+
+
+def validate_part_list(part_list):
+    if not part_list:
+        raise ValueError(f"No assembly parts specified. You must specify at least one part.")
+    if not isinstance(part_list, list):
+        raise ValueError(f"Assembly config should be a list of parts.")
+    return all(validate_part(c) for c in part_list)
+
+
+def validate_part(part_cfg):
+    if not isinstance(part_cfg, dict):
+        raise ValueError(f"Unrecognized part config format: {part_cfg}")
+    if len(part_cfg) > 1:
+        raise ValueError(f"Each part in the part list should consist of a single class with args.")
+    return True
+
+
+def part_class_from_name(cls_name):
+    if hasattr(adapters, cls_name):
+        return getattr(adapters, cls_name)
+    elif cls_name in globals():
+        return globals()[cls_name]
+    else:
+        raise RuntimeError(f"Assembly part class not found: '{cls_name}'")
+
+
+def part_from_config(part_cfg):
+    if not validate_part(part_cfg):
+        raise ValueError(f"Invalid part config:\n{part_cfg}")
+    cls_name, args = next(iter(part_cfg.items()))
+    PartClass = part_class_from_name(cls_name)
+    args = copy(args)
+    if "frozen" in args:
+        del args["frozen"]
+    return PartClass(**args)
+
+
+def freeze(part):
+    for param in part.parameters():
+        param.requires_grad = False
 
 
 class Assembly(nn.Module):
@@ -39,101 +113,62 @@ class Assembly(nn.Module):
 
     def __init__(
             self,
-            block_list,
-            adapter_list=None,
-            use_head=False,
-            use_base=False,
-            base_adapter=None,
-            block_fixed=True,
-            base_channels=64,
+            config,
+            head_cfg=None,
             input_shape=None,
-            num_classes=None,
     ):
         super().__init__()
-        if not block_list:
-            raise ValueError(f"No blocks specified. You must specify at least one block.")
-        if (adapter_list is not None) and (len(adapter_list) != len(block_list) - 1):
-            raise ValueError("Number of adapters must be one fewer than the number of blocks.")
+        if not validate_part_list(config):
+            raise ValueError(f"Invalid part list config:\n{config}")
 
-        if use_base:
+        part_list = []
+        for c in config:
+            part = part_from_config(c)
+            part_list.append(part)
+            part_args = next(iter(c.values()))
+            if part_args.get("frozen"):
+                freeze(part)
+        self.parts = nn.ModuleList(part_list)
+
+        if head_cfg:
             if not input_shape:
-                raise ValueError("To use a new base block, you must specify the expected input_shape.")
-            self.base = nn.Sequential(OrderedDict([
-                ("conv0", nn.Conv2d(input_shape[0], base_channels, kernel_size=7, stride=2, padding=3, bias=False)),
-                ("norm0", nn.BatchNorm2d(base_channels)),
-                ("relu0", nn.ReLU(inplace=True)),
-                ("pool0", nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-            ]))
-        else:
-            self.base = None
-
-        self.blocks = []
-        self.block_types = []
-        self.block_outputs = []
-        for block_cfg in block_list:
-            base_model_name = block_cfg["model_name"]
-            self.block_types.append(MODEL_ZOO[base_model_name.split(".")[0]]["type"])
-            if "output_type" in block_cfg:
-                self.block_outputs.append(block_cfg["output_type"])
-                del block_cfg["output_type"]
-            else:
-                self.block_outputs.append(None)
-            self.blocks.append(load_subnet(**block_cfg))
-        self.blocks = nn.ModuleList(self.blocks)
-
-        if adapter_list:
-            adapters = []
-            for adapter_cfg in adapter_list:
-                adapters.append(DeRyAdapter(**adapter_cfg))
-            self.adapters = nn.ModuleList(adapters)
-        else:
-            self.adapters = None
-
-        if base_adapter:
-            self.base_adapter = DeRyAdapter(**base_adapter)
-        else:
-            self.base_adapter = None
-
-        if use_head:
-            if not (input_shape and num_classes):
-                raise ValueError("To use a classifier head, you must specify the expected input and output shapes.")
+                raise ValueError("To use a classifier head, you must specify the expected input shape.")
+            if not isinstance(head_cfg, dict) or len(head_cfg) > 1:
+                raise ValueError(f"Unrecognized head config format: {head_cfg}."
+                                 " Should consist of a single class with args.")
             output_shape = utils.calculate_output_shape(self.trunk_forward, input_shape)
-            self.head = ClassifierHead(output_shape, num_classes)
+            head_args = next(iter(head_cfg.values()))
+            head_args["input_shape"] = output_shape
+            self.head = part_from_config(head_cfg)
+            if head_args.get("frozen"):
+                freeze(self.head)
         else:
             self.head = None
 
-        if block_fixed:
-            for param in self.blocks.parameters():
-                param.requires_grad = False
-
     def trunk_forward(self, x):
-        if self.base:
-            x = self.base(x)
-        # TODO: This out_shape stuff is a complete mess, inherited from DeRy. Needs refactoring.
+        # TODO: This out_shape and net_type stuff is a complete mess, inherited from DeRy. Needs refactoring.
+        #       Ultimately we just need to know how to transform b/w token-based shapes and image-based shapes.
         out_shape = (x.shape[2], x.shape[3])
-        if self.base_adapter is not None:
-            x, out_shape = self.base_adapter(x, out_shape)
-
-        for i, block in enumerate(self.blocks):
-            if i > 0 and self.adapters is not None:
-                x, out_shape = self.adapters[i - 1](x, out_shape)
-
-            if self.block_types[i] == "swin":
-                x = block(x, out_shape)
-                if self.block_outputs[i] == "vector":
+        for i, part in enumerate(self.parts):
+            if not hasattr(part, "net_type"):
+                # If no net type, we assume it already handles shape as input and output.
+                x, out_shape = part(x, out_shape)
+            elif part.net_type == "swin":
+                x = part(x, out_shape)
+                if getattr(part, "output_type", None) == "vector":
                     out_shape = [1, 1]
                 else:
                     x, out_shape = x
-            elif self.block_types[i] == "cnn":
-                x = block(x)
+            elif part.net_type == "cnn":
+                x = part(x)
                 if isinstance(x, dict):
                     x = list(x.values())[0]
-                if self.block_outputs[i] == "vector":
+                if getattr(part, "output_type", None) == "vector":
                     out_shape = [1, 1]
                 else:
                     out_shape = (x.shape[2], x.shape[3])
-            elif self.block_types[i] == "vit":
-                x = block(x)
+            elif part.net_type == "vit":
+                x = part(x)
 
         return x
 

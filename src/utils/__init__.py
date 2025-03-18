@@ -267,8 +267,15 @@ def ensure_config_param(config, keys, condition=None, dflt=None, required=True):
             raise RuntimeError(f'Required key "{key_name}" not found in config.')
         return
     value = config[key]
-    if condition and not condition(value):
-        raise RuntimeError(f'Config parameter "{key_name}" has an invalid value: {value}')
+    if condition:
+        err_msg = f'Config parameter "{key_name}" has an invalid value: {value}'
+        try:
+            error = not condition(value)
+        except Exception as e:
+            err_msg += "\n" + str(e)
+            error = True
+        if error:
+            raise RuntimeError(err_msg)
 
 
 ###############################################################################

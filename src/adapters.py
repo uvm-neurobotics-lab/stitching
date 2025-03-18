@@ -47,6 +47,7 @@ class ResNetBasicBlock(nn.Module):
             raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        self.net_type = "cnn"
 
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride)
@@ -86,6 +87,7 @@ class ResNetBottleneck(nn.Module):
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
         norm_layer = NORM_MAPPING[norm_type]
+        self.net_type = "cnn"
 
         width = int(planes * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
