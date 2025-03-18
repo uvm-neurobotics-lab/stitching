@@ -1,0 +1,52 @@
+#
+# Config for testing whether we can remove a whole block from the middle of a ResNet and still achieve parity.
+#
+# For reference, different versions of ResNet-18 available are:
+#  - resnet18.fb_swsl_ig1b_ft_in1k:    73.3% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
+#  - resnet18.fb_ssl_yfcc100m_ft_in1k: 72.6% (Pretrained on YFCC100M using SSL, then fine-tuned on IN-1k)
+#  - resnet18.a1_in1k:                 71.5% (ResNet Strikes Back A1 recipe)
+#  - resnet18.a2_in1k:                 70.6% (ResNet Strikes Back A2 recipe)
+#  - resnet18.a3_in1k:                 68.2% (ResNet Strikes Back A3 recipe)
+#  - resnet18.gluon_in1k:              70.8% (Bag-of-Tricks based recipe)
+#  - resnet18.tv_in1k:                 69.8% (Original Torchvision model)
+#
+
+# This config removes block 3.1.
+assembly:
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: x
+      block_output: layer3.0
+      frozen: true
+  - DeRyAdapter:
+      mode: cnn2cnn
+      num_conv: 1
+      input_channel: 256
+      output_channel: 256
+      nonlinearity: false
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: layer4
+      block_output: fc
+      output_type: vector
+      frozen: true
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 3
+
+  # Optimization
+  batch_size: 256
+  optimizer: Adam
+  lr: 1.0e-3
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
