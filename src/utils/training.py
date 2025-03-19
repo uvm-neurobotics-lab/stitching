@@ -2,6 +2,7 @@
 Functions to support training networks in ways that can form the basis of a NAS benchmark.
 """
 import logging
+import warnings
 from collections.abc import Mapping, Sequence, Set
 from enum import Enum
 from pathlib import Path
@@ -75,7 +76,8 @@ def check_train_config(config: dict):
     ensure_config_param(config, "test_only", of_type(bool), required=False)
     # If we are only testing, then weights must be supplied by one of these two methods.
     if config.get("test_only") and not ("resume_from" in config or "load_from" in config):
-        raise RuntimeError(f"If we are testing only, then you must load weights via load_from or resume_from.")
+        warnings.warn(f"We are testing the INITIAL model, but you have not provided weights via the 'load_from' or "
+                      "'resume_from' arguments.")
     if "resume_from" in config and "load_from" in config:
         raise RuntimeError(f"'load_from' and 'resume_from' are mutually exclusive. Supply only one.")
     ensure_config_param(config, "start_epoch", _and(of_type(int), gte_zero), dflt=0)
