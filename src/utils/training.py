@@ -70,8 +70,14 @@ def check_train_config(config: dict):
     ensure_config_param(config, "save_checkpoints", of_type(bool), required=False)
     ensure_config_param(config, "eval_checkpoints", of_type(bool), required=False)
     ensure_config_param(config, "checkpoint_initial_model", of_type(bool), required=False)
+    ensure_config_param(config, "resume_from", of_type((str, Path)), required=False)
+    ensure_config_param(config, "load_from", of_type((str, Path)), required=False)
     ensure_config_param(config, "test_only", of_type(bool), required=False)
-    ensure_config_param(config, "resume_from", of_type((str, Path)), required=config.get("test_only"))
+    # If we are only testing, then weights must be supplied by one of these two methods.
+    if config.get("test_only") and not ("resume_from" in config or "load_from" in config):
+        raise RuntimeError(f"If we are testing only, then you must load weights via load_from or resume_from.")
+    if "resume_from" in config and "load_from" in config:
+        raise RuntimeError(f"'load_from' and 'resume_from' are mutually exclusive. Supply only one.")
     ensure_config_param(config, "start_epoch", _and(of_type(int), gte_zero), dflt=0)
     ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
 
@@ -248,6 +254,9 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
             optimizer.load_state_dict(checkpoint["optimizer"])
             scheduler.load_state_dict(checkpoint["scheduler"])
         config["start_epoch"] = checkpoint["epoch"] + 1
+    elif config.get("load_from"):
+        checkpoint = torch.load(config.get("load_from"), map_location="cpu", weights_only=True)
+        model_without_ddp.load_state_dict(checkpoint["model"])
 
     # Set up progress/checkpoint logger.
     max_steps = train_config.get("max_steps", float("inf"))

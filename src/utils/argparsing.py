@@ -327,7 +327,7 @@ def add_wandb_args(parser, allow_id=False):
         - [optional] id
     """
     id_text = " Ignored if --id is used." if allow_id else ""
-    parser.add_argument("--project", default="nas-landscapes", help="Project to use for W&B logging." + id_text)
+    parser.add_argument("--project", default="stitching", help="Project to use for W&B logging." + id_text)
     parser.add_argument("--entity", help="Entity to use for W&B logging." + id_text)
     parser.add_argument("--group", help="Name under which to group this run in W&B.")
     if allow_id:

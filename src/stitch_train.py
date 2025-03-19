@@ -61,7 +61,11 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              "directory.")
     parser.add_argument("--start-epoch", metavar="N", default=0, type=int, help="Start epoch.")
     parser.add_argument("--resume-from", "--resume", metavar="FILE", type=argutils.existing_path,
-                        help="Path of checkpoint to resume from.")
+                        help="Path of checkpoint to resume from. Mutually exclusive with --load-from.")
+    parser.add_argument("--load-from", "--weights", metavar="FILE", type=argutils.existing_path,
+                        help="Path of checkpoint to load pretrained weights from. Training will NOT be resumed from "
+                        "the checkpoint, but rather will begin at --start-epoch. Mutually exclusive with "
+                        "--resume-from.")
     parser.add_argument("--test-only", dest="test_only", action="store_true", help="Only test the model.")
 
     # Distributed/hardware args.
@@ -119,9 +123,10 @@ def prep_config(parser, args):
 
     # This list governs which _top-level_ args can be overridden from the command line.
     config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
-                                                           "eval_checkpoints", "resume_from", "start_epoch",
-                                                           "test_only", "save_dir", "id", "project", "entity", "group",
-                                                           "device", "workers", "deterministic", "verbose"])
+                                                           "eval_checkpoints", "load_from", "resume_from",
+                                                           "start_epoch", "test_only", "save_dir", "id", "project",
+                                                           "entity", "group", "device", "workers", "deterministic",
+                                                           "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
