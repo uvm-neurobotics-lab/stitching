@@ -33,6 +33,27 @@ index 37cc660..c1d36db 100644
          graph_module.recompile()  # This call may be unnecessary?
  
          # Remove old input node (its users should now be eliminated).
+diff --git a/src/utils/training.py b/src/utils/training.py
+index 49e0c30..0d8f49f 100644
+--- a/src/utils/training.py
++++ b/src/utils/training.py
+@@ -250,14 +250,14 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
+         model_without_ddp = model.module
+ 
+     if config.get("resume_from"):
+-        checkpoint = torch.load(config.get("resume_from"), map_location="cpu", weights_only=True)
++        checkpoint = torch.load(config.get("resume_from"), map_location="cpu")
+         model_without_ddp.load_state_dict(checkpoint["model"])
+         if not config.get("test_only"):
+             optimizer.load_state_dict(checkpoint["optimizer"])
+             scheduler.load_state_dict(checkpoint["scheduler"])
+         config["start_epoch"] = checkpoint["epoch"] + 1
+     elif config.get("load_from"):
+-        checkpoint = torch.load(config.get("load_from"), map_location="cpu", weights_only=True)
++        checkpoint = torch.load(config.get("load_from"), map_location="cpu")
+         model_without_ddp.load_state_dict(checkpoint["model"])
+ 
+     # Set up progress/checkpoint logger.
 diff --git a/stitch_train.sbatch b/stitch_train.sbatch
 index de1e7a3..a82c255 100644
 --- a/stitch_train.sbatch
