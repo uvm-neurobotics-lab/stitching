@@ -13,7 +13,7 @@ import torch
 import yaml
 from torch.nn.utils import clip_grad_norm_
 
-from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type
+from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type, one_of
 from utils.logging import StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
                                 optimizer_from_config, scheduler_from_config)
@@ -91,10 +91,13 @@ def check_train_config(config: dict):
     ensure_config_param(config, ["train_config", "epochs"], _and(of_type(int), gte_zero))
     ensure_config_param(config, ["train_config", "max_steps"], _and(of_type(int), gte_zero), required=False)
     ensure_config_param(config, ["train_config", "loss_fn"], of_type(str), "cross_entropy")
+    # TODO: Improve opt/sched config to look cleaner like assembly config.
     ensure_config_param(config, ["train_config", "optimizer"], of_type(str), "Adam")
     ensure_config_param(config, ["train_config", "optimizer_args"], of_type(dict), {"lr": 0.1})
     ensure_config_param(config, ["train_config", "lr_scheduler"], of_type(str), required=False)
     ensure_config_param(config, ["train_config", "lr_scheduler_args"], of_type(dict), required=False)
+    ensure_config_param(config, ["train_config", "lr_scheduler_args", "cadence"], one_of(["epochs", "steps"]),
+                        required=False)
     ensure_config_param(config, ["train_config", "max_grad_norm"], gte_zero, 0)
 
     ensure_config_param(config, ["train_config", "aux_losses"], of_type(list), required=False)
@@ -239,7 +242,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
         torch.backends.cudnn.benchmark = True
 
     optimizer = optimizer_from_config(train_config, model.parameters())
-    scheduler = scheduler_from_config(train_config, optimizer)
+    scheduler, sched_cadence = scheduler_from_config(train_config, optimizer)
     loss_fns = loss_fns_from_config(train_config, model)
     max_grad_norm = train_config["max_grad_norm"]
 
@@ -250,14 +253,16 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
         model_without_ddp = model.module
 
     if config.get("resume_from"):
-        checkpoint = torch.load(config.get("resume_from"), map_location="cpu", weights_only=True)
+        logging.info(f"Resuming checkpoint at {config['resume_from']}.")
+        checkpoint = torch.load(config["resume_from"], map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"])
         if not config.get("test_only"):
             optimizer.load_state_dict(checkpoint["optimizer"])
             scheduler.load_state_dict(checkpoint["scheduler"])
         config["start_epoch"] = checkpoint["epoch"] + 1
     elif config.get("load_from"):
-        checkpoint = torch.load(config.get("load_from"), map_location="cpu", weights_only=True)
+        logging.info(f"Resuming checkpoint at {config['load_from']}.")
+        checkpoint = torch.load(config["load_from"], map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"])
 
     # Set up progress/checkpoint logger.
@@ -288,19 +293,20 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     for epoch in range(config.get("start_epoch") + 1, max_epochs + 1):  # Epoch/step counts will be 1-based.
         if config["distributed"] and train_sampler is not None:
             train_sampler.set_epoch(epoch)
-        step = run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, config, loss_fns, log, epoch,
-                             step, max_steps, max_grad_norm=max_grad_norm, device=device)
+        step = run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, sched_cadence, config, loss_fns,
+                             log, epoch, step, max_steps, max_grad_norm=max_grad_norm, device=device)
         if step > max_steps:
             break
-        scheduler.step()
+        if sched_cadence == "epochs":
+            scheduler.step()
 
     return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, train_loader, valid_loaders, optimizer,
                      scheduler, config, device, bool(config.get("eval_checkpoints")),
                      bool(config.get("save_checkpoints")))
 
 
-def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, config, loss_fns, log, epoch, step,
-                  max_steps=float("inf"), opt_params=None, max_grad_norm=0, device=None):
+def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, sched_cadence, config, loss_fns, log, epoch,
+                  step, max_steps=float("inf"), opt_params=None, max_grad_norm=0, device=None):
     """ Run one training epoch. """
     log.begin_epoch(step, epoch, model, train_loader, valid_loaders, optimizer, device)
 
@@ -313,6 +319,8 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, conf
     for batch in train_loader:
         log.begin_step(step, epoch)
         total_loss, losses, out, labels = run_one_step(batch, model, optimizer, loss_fns, max_grad_norm, device)
+        if sched_cadence == "steps":
+            scheduler.step()
         log.end_step(step, epoch, total_loss, out, labels, model, all_losses=losses)
         step += 1
         if step > max_steps:

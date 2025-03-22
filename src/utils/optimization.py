@@ -42,13 +42,17 @@ def scheduler_from_config(config, opt):
 
     Returns:
         torch.optim.lr_scheduler._LRScheduler: The new scheduler.
+        Any: A variable describing when the scheduler's `step()` function should be called. Defaults to "epochs",
+             indicating that it should be called once per epoch, which is the common PyTorch convention.
     """
     sched_name = config.get("lr_scheduler")
     if not sched_name or sched_name == "DummyScheduler":
         return DummyScheduler(opt)
     sched_args = config.get("lr_scheduler_args", {})
     cls = getattr(torch.optim.lr_scheduler, sched_name)
-    return cls(opt, **sched_args)
+    sched_args = sched_args.copy()
+    cadence = sched_args.pop("cadence", "epochs")
+    return cls(opt, **sched_args), cadence
 
 
 class AuxLossFn:
