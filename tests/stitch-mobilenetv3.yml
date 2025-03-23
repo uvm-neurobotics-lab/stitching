@@ -20,8 +20,8 @@ assembly:
   - DeRyAdapter:
       mode: cnn2cnn
       num_conv: 1
-      input_channel: 40
-      output_channel: 40
+      in_channels: 40
+      out_channels: 40
       nonlinearity: false
   - Subnet:
       backend: timm

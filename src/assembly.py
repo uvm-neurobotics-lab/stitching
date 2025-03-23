@@ -1,8 +1,6 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
-from copy import copy
-
 import torch.nn as nn
 
 import adapters
@@ -88,7 +86,7 @@ def part_from_config(part_cfg):
         raise ValueError(f"Invalid part config:\n{part_cfg}")
     cls_name, args = next(iter(part_cfg.items()))
     PartClass = part_class_from_name(cls_name)
-    args = copy(args)
+    args = args.copy()
     if "frozen" in args:
         del args["frozen"]
     return PartClass(**args)

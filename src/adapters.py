@@ -22,22 +22,22 @@ NORM_MAPPING["instance"] = NORM_MAPPING["in"]
 NORM_MAPPING["instancenorm"] = NORM_MAPPING["in"]
 
 
-def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
+def conv3x3(in_channels, out_channels, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride,
                      padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
-def conv1x1(in_planes, out_planes, stride=1):
+def conv1x1(in_channels, out_channels, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False)
 
 
 class ResNetBasicBlock(nn.Module):
     expansion = 1
     __constants__ = ['downsample']
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_type="bn"):
         super(ResNetBasicBlock, self).__init__()
         if norm_type not in NORM_MAPPING:
@@ -50,11 +50,11 @@ class ResNetBasicBlock(nn.Module):
         self.net_type = "cnn"
 
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = norm_layer(planes)
+        self.conv1 = conv3x3(in_channels, out_channels, stride)
+        self.bn1 = norm_layer(out_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = norm_layer(planes)
+        self.conv2 = conv3x3(out_channels, out_channels)
+        self.bn2 = norm_layer(out_channels)
         self.downsample = downsample
         self.stride = stride
 
@@ -81,7 +81,7 @@ class ResNetBottleneck(nn.Module):
     expansion = 4
     __constants__ = ['downsample']
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_type="bn"):
         super(ResNetBottleneck, self).__init__()
         if norm_type not in NORM_MAPPING:
@@ -89,14 +89,14 @@ class ResNetBottleneck(nn.Module):
         norm_layer = NORM_MAPPING[norm_type]
         self.net_type = "cnn"
 
-        width = int(planes * (base_width / 64.)) * groups
+        width = int(out_channels * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv1x1(inplanes, width)
+        self.conv1 = conv1x1(in_channels, width)
         self.bn1 = norm_layer(width)
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
-        self.bn3 = norm_layer(planes * self.expansion)
+        self.conv3 = conv1x1(width, out_channels * self.expansion)
+        self.bn3 = norm_layer(out_channels * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -128,7 +128,7 @@ class BlockAdapter(nn.Module):
     """
     An adapter which can go beyond a simple layer and form more complex blocks.
     """
-    def __init__(self, input_channel, output_channel, mode='cnn2cnn', num_fc=0, num_conv=1, kernel_size=3, stride=1,
+    def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=1, kernel_size=3, stride=1,
                  padding=1, leading_norm=True):
         super().__init__()
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
@@ -139,27 +139,27 @@ class BlockAdapter(nn.Module):
         layers = []
         if num_fc > 0:
             if leading_norm:
-                layers.append(nn.LayerNorm(input_channel))
+                layers.append(nn.LayerNorm(in_channels))
             for i in range(num_fc):
                 if i == 0:
-                    layers.append(nn.Linear(input_channel, output_channel))
+                    layers.append(nn.Linear(in_channels, out_channels))
                 else:
-                    layers.append(nn.Linear(output_channel, output_channel))
-                layers.append(nn.LayerNorm(output_channel))
+                    layers.append(nn.Linear(out_channels, out_channels))
+                layers.append(nn.LayerNorm(out_channels))
                 # TODO: Inherited this particular type of ReLU from DeRy. No reason to necessarily prefer it.
                 layers.append(nn.LeakyReLU(0.1, inplace=True))
 
         elif num_conv > 0:
             if leading_norm:
-                layers.append(nn.BatchNorm2d(input_channel))
+                layers.append(nn.BatchNorm2d(in_channels))
             for i in range(num_conv):
                 if i == 0:
-                    layers.append(nn.Conv2d(input_channel, output_channel, kernel_size=kernel_size, stride=stride,
+                    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride,
                                             padding=padding))
                 else:
-                    layers.append(nn.Conv2d(output_channel, output_channel, kernel_size=kernel_size, stride=1,
+                    layers.append(nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=1,
                                             padding=padding))
-                layers.append(nn.BatchNorm2d(output_channel))
+                layers.append(nn.BatchNorm2d(out_channels))
                 layers.append(nn.LeakyReLU(0.1, inplace=True))
 
         self.adapter = nn.Sequential(*layers)
@@ -197,7 +197,7 @@ class DeRyAdapter(nn.Module):
     This is the adapter as it appeared in Deep Model Reassembly (DeRy) (roughly, with modifications).
     From: https://github.com/Adamdad/DeRy/blob/main/mmcls_addon/models/backbones/dery.py
     """
-    def __init__(self, input_channel, output_channel, mode='cnn2cnn', num_fc=0, num_conv=1, stride=1, leading_norm=True,
+    def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=1, stride=1, leading_norm=True,
                  trailing_norm=False, nonlinearity=True):
         super().__init__()
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
@@ -208,29 +208,29 @@ class DeRyAdapter(nn.Module):
         layers = []
         if num_fc > 0:
             if leading_norm:
-                layers.append(nn.LayerNorm(input_channel))
+                layers.append(nn.LayerNorm(in_channels))
             for i in range(num_fc):
                 if i == 0:
-                    layers.append(nn.Linear(input_channel, output_channel, bias=False))
+                    layers.append(nn.Linear(in_channels, out_channels, bias=False))
                 else:
-                    layers.append(nn.Linear(output_channel, output_channel, bias=False))
+                    layers.append(nn.Linear(out_channels, out_channels, bias=False))
             if trailing_norm:
-                layers.append(nn.LayerNorm(output_channel))
+                layers.append(nn.LayerNorm(out_channels))
             if nonlinearity:
                 layers.append(nn.LeakyReLU(0.1, inplace=True))
 
         elif num_conv > 0:
             if leading_norm:
-                layers.append(nn.BatchNorm2d(input_channel))
+                layers.append(nn.BatchNorm2d(in_channels))
             for i in range(num_conv):
                 if i == 0:
-                    layers.append(nn.Conv2d(input_channel, output_channel, kernel_size=stride, stride=stride, padding=0,
+                    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=stride, stride=stride, padding=0,
                                             bias=False))
                 else:
-                    layers.append(nn.Conv2d(output_channel, output_channel, kernel_size=1, stride=1, padding=0,
+                    layers.append(nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0,
                                             bias=False))
             if trailing_norm:
-                layers.append(nn.BatchNorm2d(output_channel))
+                layers.append(nn.BatchNorm2d(out_channels))
             if nonlinearity:
                 layers.append(nn.LeakyReLU(0.1, inplace=True))
 
