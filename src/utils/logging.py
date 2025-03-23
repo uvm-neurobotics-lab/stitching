@@ -133,6 +133,7 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
         (output: Tensor, labels: Tensor) -> dict[metric_name: str, metric_value: float]
     This returns a dict containing all metrics. If there are no batches, this returns an empty dictionary. If all
     batches are empty, this may return a dict populated with NaNs.
+    This function will automatically collect metrics over all processes if we are running in distributed mode.
     """
     # Allow the tensors to be empty.
     nbatches = len(data_loader)
@@ -286,7 +287,7 @@ class BaseLog:
             for key, loader in loaders.items():
                 metric_dict = overall_metrics(model, loader, key, self.metric_fns, device, self.delimiter,
                                               print_fn=self.debug)
-                metric_str = ""
+                metric_msg = []
                 for mk, mv in metric_dict.items():
                     if mk == "Time/Eval Total":
                         continue  # Special print for this one.
@@ -295,22 +296,20 @@ class BaseLog:
                         levels = ["Overall", mk]
                     metrics[f"{levels[0]}/{key} {levels[1]}"] = mv
                     if (not self.metrics_to_print) or (mk in self.metrics_to_print):
-                        metric_str += f"{mk}: {mv:.3f} | "
-                if metric_str:
-                    # TODO: tab separate instead?
-                    metric_str = metric_str[:-2]  # remove ending separator: "| "
-                self.info(f"    {key} {metric_str}"
+                        metric_msg.append(f"{mk}: {mv:.3f}")
+                metric_msg = "\t".join(metric_msg)
+                self.info(f"    {key} {metric_msg}"
                           f"(Time to Eval: {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
 
         # Save the model.
         if should_save and dist.is_main_process():
             self.last_save_step = it
+            # Ensures that we always save the model, not its wrapper. Else we can end up with key mismatches.
+            raw_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
             save_path = self.save_dir / f"{self.model_name}-{it}.pth"
             self.info(f"Saving model to: {save_path}")
             checkpoint = {
-                # TODO: Do we need this to be the "model without ddp"?
-                #     (model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model)
-                "model": model.state_dict(),
+                "model": raw_model.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
                 "epoch": epoch,
@@ -355,7 +354,7 @@ class StandardLog(BaseLog):
 
     def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):
         self.record({"LR": optimizer.param_groups[0]["lr"]}, it)  # NOTE: assumes only one param group for now.
-        self.info(f"---- Beginning Epoch {epoch} ({len(train_loader)} batches) ----")
+        self.info(f"------------ Beginning Epoch {epoch} ({len(train_loader)} batches) ------------")
         self.epoch_start_step = it
         self.epoch_start_time = self.step_end_time = time()
         self.steps_in_epoch = len(train_loader)
