@@ -52,6 +52,8 @@ def scheduler_from_config(config, opt):
     cls = getattr(torch.optim.lr_scheduler, sched_name)
     sched_args = sched_args.copy()
     cadence = sched_args.pop("cadence", "epochs")
+    if "schedulers" in sched_args:  # Allows for nested schedulers, e.g. SequentialLR or ChainedScheduler.
+        sched_args["schedulers"] = [scheduler_from_config(c, opt)[0] for c in sched_args["schedulers"]]
     return cls(opt, **sched_args), cadence
 
 

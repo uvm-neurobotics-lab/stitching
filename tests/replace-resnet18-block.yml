@@ -40,13 +40,25 @@ train_config:
 
   # General Params
   seed: 12345
-  epochs: &epochs 3
+  epochs: 10
 
   # Optimization
   batch_size: 256
-  optimizer: Adam
-  lr: 1.0e-3
-  lr_scheduler: CosineAnnealingLR
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: SequentialLR
   lr_scheduler_args:
-    T_max: *epochs
-    eta_min: 0.0
+    cadence: steps  # Can be "steps" or "epochs" (default: epochs).
+    milestones:
+      - 626  # Linear warm-up for one epoch.
+    schedulers:
+      - lr_scheduler: LinearLR
+        lr_scheduler_args:
+          total_iters: 626  # NOTE: This must always be in steps (batches per epoch)! Depends on batch size.
+          start_factor: 1.0e-3
+      - lr_scheduler: CosineAnnealingLR
+        lr_scheduler_args:
+          T_max: 6260  # NOTE: This must always be epochs * batches per epoch! INet has 256 * 8 * 626 images.
+          eta_min: 1.0e-5
