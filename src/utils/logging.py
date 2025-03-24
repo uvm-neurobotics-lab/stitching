@@ -349,7 +349,7 @@ class StandardLog(BaseLog):
         self.step_end_time = -1
         self.print_freq = print_freq
         self.log_gradients = log_gradients
-        if use_wandb and self.log_gradients:
+        if self.use_wandb and self.log_gradients:
             wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
     def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):

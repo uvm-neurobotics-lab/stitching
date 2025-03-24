@@ -151,7 +151,8 @@ def setup_and_train(parser, config):
 
     device = argutils.get_device(parser, config)
     argutils.set_seed(config["train_config"]["seed"])
-    argutils.prepare_wandb(config)
+    if dist.is_main_process():
+        argutils.prepare_wandb(config)
 
     logging.info("Loading dataset.")
     train_data, test_data, input_shape, num_classes = datasets.load_dataset_from_config(config)
