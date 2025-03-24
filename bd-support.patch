@@ -34,23 +34,24 @@ index 37cc660..c1d36db 100644
  
          # Remove old input node (its users should now be eliminated).
 diff --git a/src/utils/training.py b/src/utils/training.py
-index 49e0c30..0d8f49f 100644
+index 5003bf4..9f61678 100644
 --- a/src/utils/training.py
 +++ b/src/utils/training.py
-@@ -250,14 +250,14 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
-         model_without_ddp = model.module
+@@ -254,7 +254,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
  
      if config.get("resume_from"):
--        checkpoint = torch.load(config.get("resume_from"), map_location="cpu", weights_only=True)
-+        checkpoint = torch.load(config.get("resume_from"), map_location="cpu")
+         logging.info(f"Resuming checkpoint at {config['resume_from']}.")
+-        checkpoint = torch.load(config["resume_from"], map_location="cpu", weights_only=True)
++        checkpoint = torch.load(config["resume_from"], map_location="cpu")
          model_without_ddp.load_state_dict(checkpoint["model"])
          if not config.get("test_only"):
              optimizer.load_state_dict(checkpoint["optimizer"])
-             scheduler.load_state_dict(checkpoint["scheduler"])
+@@ -262,7 +262,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
          config["start_epoch"] = checkpoint["epoch"] + 1
      elif config.get("load_from"):
--        checkpoint = torch.load(config.get("load_from"), map_location="cpu", weights_only=True)
-+        checkpoint = torch.load(config.get("load_from"), map_location="cpu")
+         logging.info(f"Resuming checkpoint at {config['load_from']}.")
+-        checkpoint = torch.load(config["load_from"], map_location="cpu", weights_only=True)
++        checkpoint = torch.load(config["load_from"], map_location="cpu")
          model_without_ddp.load_state_dict(checkpoint["model"])
  
      # Set up progress/checkpoint logger.
