@@ -353,7 +353,6 @@ class StandardLog(BaseLog):
             wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
     def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):
-        self.record({"LR": optimizer.param_groups[0]["lr"]}, it)  # NOTE: assumes only one param group for now.
         self.info(f"------------ Beginning Epoch {epoch} ({len(train_loader)} batches) ------------")
         self.epoch_start_step = it
         self.epoch_start_time = self.step_end_time = time()
@@ -383,9 +382,10 @@ class StandardLog(BaseLog):
 
         self.record({"Time/Per Epoch": time() - self.epoch_start_time}, it)
 
-    def begin_step(self, it, epoch):
+    def begin_step(self, it, epoch, optimizer):
         self.step_start_time = time()
-        self.record({"Time/Data": self.step_start_time - self.step_end_time}, it)
+        current_lr = optimizer.param_groups[0]["lr"]  # NOTE: assumes only one param group for now.
+        self.record({"Time/Data": self.step_start_time - self.step_end_time, "LR": current_lr}, it)
 
     def end_step(self, it, epoch, loss, out, labels, model, all_losses=None, metric_fns=None):
         if not metric_fns:

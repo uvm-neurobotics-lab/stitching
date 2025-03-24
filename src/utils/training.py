@@ -317,7 +317,7 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, sche
 
     model.train()
     for batch in train_loader:
-        log.begin_step(step, epoch)
+        log.begin_step(step, epoch, optimizer)
         total_loss, losses, out, labels = run_one_step(batch, model, optimizer, loss_fns, max_grad_norm, device)
         if sched_cadence == "steps":
             scheduler.step()
