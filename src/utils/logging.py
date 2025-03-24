@@ -250,9 +250,7 @@ class BaseLog:
             self.smoothed_metrics[k].update(v, batch_size if batch_size else 1)
 
         if self.use_wandb:
-            # Turn the keys into strings for Weights and Biases.
-            wmetrics = {k.get_name(): v for k, v in metrics.items()}
-            wandb.log(wmetrics, step=it)
+            wandb.log(metrics, step=it)
 
     def begin(self, model, train_loader, valid_loaders, optimizer, scheduler, config, device):
         self.start_time = time()
