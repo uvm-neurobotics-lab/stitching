@@ -275,7 +275,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     print_freq = config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
-    log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,
+    log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq, use_wandb=True,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
                       checkpoint_initial_model=config.get("checkpoint_initial_model", config.get("save_checkpoints")))
 
