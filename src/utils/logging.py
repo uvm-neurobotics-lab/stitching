@@ -390,9 +390,9 @@ class StandardLog(BaseLog):
             metric_fns = self.metric_fns
 
         # Compute metrics.
-        # TODO: may want to separate out metrics which are independent of batch size. Epoch, loss, img per sec, max mem
         extra_to_print = []
-        metrics = {"Epoch": epoch, "Loss": loss.item()}
+        non_bsize_metrics = {"Epoch": epoch, "Loss": loss.item()}
+        metrics = {}
         if all_losses is not None and len(all_losses) > 1:
             metrics.update({k: v.item() for k, v in all_losses.items()})
         for metric in metric_fns:
@@ -406,11 +406,12 @@ class StandardLog(BaseLog):
         # Track runtime & memory performance.
         batch_size = len(labels)
         metrics["Time/Step"] = time() - self.step_end_time
-        metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
+        non_bsize_metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
         if torch.cuda.is_available():
-            metrics["Max Mem"] = torch.cuda.max_memory_allocated() / 1024.0 / 1024.0
+            non_bsize_metrics["Max Mem"] = torch.cuda.max_memory_allocated() / 1024.0 / 1024.0
 
         # Record metrics
+        self.record(non_bsize_metrics, it, 1)
         self.record(metrics, it, batch_size)
 
         # Finally, print metrics periodically.
