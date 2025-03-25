@@ -13,6 +13,11 @@ import torch
 import yaml
 from torch.nn.utils import clip_grad_norm_
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type, one_of
 from utils.logging import StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
@@ -275,9 +280,10 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     print_freq = config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
-    log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq, use_wandb=True,
+    log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
-                      checkpoint_initial_model=config.get("checkpoint_initial_model", config.get("save_checkpoints")))
+                      use_wandb=wandb is not None, checkpoint_initial_model=config.get("checkpoint_initial_model",
+                                                                                       config.get("save_checkpoints")))
 
     if config.get("test_only"):
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy.

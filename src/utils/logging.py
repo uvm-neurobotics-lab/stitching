@@ -227,6 +227,7 @@ class BaseLog:
         self.recorded_metrics = defaultdict(dict)
         self.recorded_counts = {}
         self.smoothed_metrics = defaultdict(SmoothedValue)
+        self.wandb_defined = set()
         self.last_save_step = -1
         self.last_eval_step = -1
         self.start_time = None
@@ -241,6 +242,11 @@ class BaseLog:
     def debug(self, msg):
         self.logger.debug(msg)
 
+    def define_wandb_metric(self, name, summary):
+        if self.use_wandb:
+            wandb.define_metric(name, summary=summary)
+            self.wandb_defined.add(name)
+
     def record(self, metrics, it, batch_size=None):
         self.recorded_metrics[it].update(metrics)
         if batch_size is not None:
@@ -250,6 +256,10 @@ class BaseLog:
             self.smoothed_metrics[k].update(v, batch_size if batch_size else 1)
 
         if self.use_wandb:
+            for k in metrics:
+                if k not in self.wandb_defined:
+                    if k.startswith("Overall/"):
+                        self.define_wandb_metric(k, summary="last")
             wandb.log(metrics, step=it)
 
     def begin(self, model, train_loader, valid_loaders, optimizer, scheduler, config, device):
@@ -347,8 +357,12 @@ class StandardLog(BaseLog):
         self.step_end_time = -1
         self.print_freq = print_freq
         self.log_gradients = log_gradients
-        if self.use_wandb and self.log_gradients:
-            wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
+        if self.use_wandb:
+            self.define_wandb_metric("Epoch", "last")
+            self.define_wandb_metric("Loss", "last")
+            self.define_wandb_metric("Max Mem", "max")
+            if self.log_gradients:
+                wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
     def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):
         self.info(f"------------ Beginning Epoch {epoch} ({len(train_loader)} batches) ------------")
