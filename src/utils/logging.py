@@ -258,7 +258,8 @@ class BaseLog:
         if self.use_wandb:
             for k in metrics:
                 if k not in self.wandb_defined:
-                    if k.startswith("Overall/"):
+                    # Default to summarizing using the last recorded metric, except for the time metrics.
+                    if not k.startswith("Time/"):
                         self.define_wandb_metric(k, summary="last")
             wandb.log(metrics, step=it)
 
@@ -360,6 +361,7 @@ class StandardLog(BaseLog):
         if self.use_wandb:
             self.define_wandb_metric("Epoch", "last")
             self.define_wandb_metric("Loss", "last")
+            self.define_wandb_metric("Time/Total", "last")
             self.define_wandb_metric("Max Mem", "max")
             if self.log_gradients:
                 wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
