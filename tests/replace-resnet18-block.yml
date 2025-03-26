@@ -37,6 +37,7 @@ assembly:
 train_config:
   # Dataset
   dataset: imagenet
+  data_augmentation: true
 
   # General Params
   seed: 12345

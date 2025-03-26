@@ -108,6 +108,7 @@ def validate_config(config):
     ensure_config_param(config, "head", _and(of_type(dict), validate_part), required=False)
 
     # Now check values related to training the model.
+    datasets.check_data_config(config)
     training.check_train_config(config)
 
     return config
@@ -132,7 +133,8 @@ def prep_config(parser, args):
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
     # This list governs which _training_ args can be overridden from the command line.
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
-                                                                 ["dataset", "seed", "batch_size", "max_batches"])
+                                                                 ["dataset", "seed", "batch_size", "max_batches",
+                                                                  "data_augmentation"])
 
     # Conduct a quick test.
     if args.smoke_test:

@@ -89,8 +89,6 @@ def check_train_config(config: dict):
     ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
 
     ensure_config_param(config, "train_config", of_type(dict))
-    ensure_config_param(config, ["train_config", "dataset"], of_type(str))
-    ensure_config_param(config, ["train_config", "batch_size"], _and(of_type(int), gt_zero))
     ensure_config_param(config, ["train_config", "seed"], of_type(int))
 
     ensure_config_param(config, ["train_config", "epochs"], _and(of_type(int), gte_zero))

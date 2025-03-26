@@ -41,9 +41,10 @@ def scheduler_from_config(config, opt):
         opt (torch.optim.Optimizer): The optimizer to put on schedule.
 
     Returns:
-        torch.optim.lr_scheduler._LRScheduler: The new scheduler.
-        Any: A variable describing when the scheduler's `step()` function should be called. Defaults to "epochs",
-             indicating that it should be called once per epoch, which is the common PyTorch convention.
+        tuple:
+            torch.optim.lr_scheduler._LRScheduler: The new scheduler.
+            Any: A variable describing when the scheduler's `step()` function should be called. Defaults to "epochs",
+                 indicating that it should be called once per epoch, which is the common PyTorch convention.
     """
     sched_name = config.get("lr_scheduler")
     if not sched_name or sched_name == "DummyScheduler":

@@ -69,6 +69,10 @@ def validate_part(part_cfg):
         raise ValueError(f"Unrecognized part config format: {part_cfg}")
     if len(part_cfg) > 1:
         raise ValueError(f"Each part in the part list should consist of a single class with args.")
+    cls_name, args = next(iter(part_cfg.items()))
+    part_class_from_name(cls_name)
+    if not isinstance(args, dict):
+        raise ValueError(f"Expected a dictionary of arguments for {cls_name}, but instead got: {args}")
     return True
 
 
