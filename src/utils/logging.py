@@ -308,7 +308,7 @@ class BaseLog:
                         metric_msg.append(f"{mk}: {mv:.3f}")
                 metric_msg = "\t".join(metric_msg)
                 self.info(f"    {key} {metric_msg}"
-                          f"(Time to Eval: {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
+                          f" (Time to Eval: {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
 
         # Save the model.
         if should_save and dist.is_main_process():
