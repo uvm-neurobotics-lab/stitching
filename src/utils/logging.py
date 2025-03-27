@@ -295,7 +295,7 @@ class BaseLog:
             self.info(f"Checkpoint {it} Performance:")
             for key, loader in loaders.items():
                 metric_dict = overall_metrics(model, loader, key, self.metric_fns, device, self.delimiter,
-                                              print_fn=self.debug)
+                                              print_fn=self.info)
                 metric_msg = []
                 for mk, mv in metric_dict.items():
                     if mk == "Time/Eval Total":

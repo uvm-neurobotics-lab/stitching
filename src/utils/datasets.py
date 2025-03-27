@@ -3,7 +3,7 @@ Module for loading of datasets specified on command line.
 """
 from os import PathLike
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Dict, Tuple, Union
 
 import numpy as np
 import torch
@@ -135,7 +135,7 @@ def _make_datasets(name, data_root, augment_config=None):
 
 
 def make_datasets(name: str, data_root: Union[str, PathLike], batch_size: int = None, max_batches: int = None,
-                  augment_config=None) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
+                  augment_config: Union[Dict, bool, None] = None) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
     """
     Construct specified classification dataset objects. Optionally select a random subset of each dataset of size
     (batch_size * max_batches).
@@ -172,7 +172,7 @@ def check_data_config(config: dict):
     ensure_config_param(config, ["train_config", "data_augmentation"], validate_transform_list, required=False)
 
 
-def load_dataset_from_config(config) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
+def load_dataset_from_config(config: Dict) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
     """
     Load datasets from config. Delegates to `make_datasets()`.
 
