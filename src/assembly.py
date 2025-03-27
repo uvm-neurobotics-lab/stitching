@@ -155,8 +155,12 @@ class Assembly(nn.Module):
             if not hasattr(part, "net_type"):
                 # If no net type, we assume it already handles shape as input and output.
                 x, out_shape = part(x, out_shape)
+                if isinstance(x, dict):
+                    x = list(x.values())[0]
             elif part.net_type == "swin":
                 x = part(x, out_shape)
+                if isinstance(x, dict):
+                    x = list(x.values())[0]
                 if getattr(part, "output_type", None) == "vector":
                     out_shape = [1, 1]
                 else:
@@ -171,6 +175,8 @@ class Assembly(nn.Module):
                     out_shape = (x.shape[2], x.shape[3])
             elif part.net_type == "vit":
                 x = part(x)
+                if isinstance(x, dict):
+                    x = list(x.values())[0]
 
         return x
 

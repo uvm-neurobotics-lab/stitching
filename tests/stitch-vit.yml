@@ -1,0 +1,50 @@
+#
+# Stitching parts of ViT-Small. Options are:
+#  - vit_small_patch16_224.augreg_in21k_ft_in1k: 81.4% (Self-supervised + fine-tuning from "How to train your ViT")
+#  - vit_small_patch16_224.augreg_in1k:          78.8% (Supervised method from "How to train your ViT")
+#
+# The cut point configured below is halfway through the model. Six blocks + six blocks.
+#
+
+# Architecture.
+assembly:
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: x
+      block_output: blocks.5
+      frozen: true
+  - DeRyAdapter:
+      mode: vit2vit
+      num_fc: 1
+      in_channels: 384
+      out_channels: 384
+      nonlinearity: false
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in21k_ft_in1k
+      block_input: blocks.6
+      block_output: head
+      output_type: vector
+      frozen: true
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: Adam
+  lr: 1.0e-3
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0

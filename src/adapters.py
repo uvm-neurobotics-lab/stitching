@@ -197,11 +197,11 @@ class DeRyAdapter(nn.Module):
     This is the adapter as it appeared in Deep Model Reassembly (DeRy) (roughly, with modifications).
     From: https://github.com/Adamdad/DeRy/blob/main/mmcls_addon/models/backbones/dery.py
     """
-    def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=1, stride=1, leading_norm=True,
+    def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=0, stride=1, leading_norm=True,
                  trailing_norm=False, nonlinearity=True):
         super().__init__()
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
-            raise ValueError('Must supply only num_fc or num_conv.')
+            raise ValueError('Must supply one and only one of num_fc or num_conv.')
         assert mode in ['cnn2cnn', 'cnn2vit', 'vit2cnn', 'vit2vit'], 'mode is not recognized'
         self.mode = mode
 

@@ -35,10 +35,11 @@ assembly:
 train_config:
   # Dataset
   dataset: imagenet
+  data_augmentation: true
 
   # General Params
   seed: 12345
-  epochs: &epochs 3
+  epochs: &epochs 10
 
   # Optimization
   # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
