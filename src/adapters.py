@@ -89,14 +89,14 @@ class ResNetBottleneck(nn.Module):
         norm_layer = NORM_MAPPING[norm_type]
         self.net_type = "cnn"
 
-        width = int(out_channels * (base_width / 64.)) * groups
+        width = int((out_channels / self.expansion) * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(in_channels, width)
         self.bn1 = norm_layer(width)
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
-        self.conv3 = conv1x1(width, out_channels * self.expansion)
-        self.bn3 = norm_layer(out_channels * self.expansion)
+        self.conv3 = conv1x1(width, out_channels)
+        self.bn3 = norm_layer(out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
