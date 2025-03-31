@@ -270,12 +270,11 @@ def ensure_config_param(config, keys, condition=None, dflt=None, required=True):
     if condition:
         err_msg = f'Config parameter "{key_name}" has an invalid value: {value}'
         try:
-            error = not condition(value)
+            if not condition(value):
+                raise RuntimeError(err_msg)
         except Exception as e:
             err_msg += "\n" + str(e)
-            error = True
-        if error:
-            raise RuntimeError(err_msg)
+            raise RuntimeError(err_msg) from e
 
 
 ###############################################################################

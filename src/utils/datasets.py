@@ -37,7 +37,7 @@ def validate_transform_config(tform_cfg):
     cls_name, args = next(iter(tform_cfg.items()))
     if not isinstance(cls_name, str) or not hasattr(transforms, cls_name):
         raise ValueError(f"Should be the name of a transform class: '{cls_name}'")
-    if not isinstance(args, dict):
+    if args and not isinstance(args, dict):
         raise ValueError(f"Expected a dictionary of arguments for {cls_name}, but instead got: {args}")
     return True
 
@@ -46,7 +46,7 @@ def transform_from_config(tform_cfg):
     if not validate_transform_config(tform_cfg):
         raise ValueError(f"Invalid transform config:\n{tform_cfg}")
     cls_name, args = next(iter(tform_cfg.items()))
-    args = args.copy()
+    args = args.copy() if args is not None else {}
     if "interpolation" in args:
         args["interpolation"] = transforms.InterpolationMode(args["interpolation"])  # transform string into enum
     if "policy" in args:

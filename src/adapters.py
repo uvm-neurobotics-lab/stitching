@@ -5,6 +5,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+import torchvision
 
 
 NORM_MAPPING = {}
@@ -14,7 +15,7 @@ NORM_MAPPING["batchnorm"] = NORM_MAPPING["bn"]
 NORM_MAPPING["gn"] = partial(nn.GroupNorm, num_groups=1)
 NORM_MAPPING["group"] = NORM_MAPPING["gn"]
 NORM_MAPPING["groupnorm"] = NORM_MAPPING["gn"]
-NORM_MAPPING["ln"] = partial(nn.LayerNorm, normalized_shape=[3, 84, 84])
+NORM_MAPPING["ln"] = nn.LayerNorm
 NORM_MAPPING["layer"] = NORM_MAPPING["ln"]
 NORM_MAPPING["layernorm"] = NORM_MAPPING["ln"]
 NORM_MAPPING["in"] = partial(nn.InstanceNorm2d, affine=True)
@@ -122,6 +123,26 @@ class ResNetBottleneck(nn.Module):
         out = self.relu(out)
 
         return out
+
+
+class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock):
+    """
+    Equivalent to an encoder block from ViT. Default values designed to match ViT-Small.
+      - For ViT-Tiny:  num_heads=3,  embed_dim=192
+      - For ViT-Small: num_heads=6,  embed_dim=384
+      - For ViT-Base:  num_heads=12, embed_dim=768
+      - For ViT-Large: num_heads=16, embed_dim=1024
+    """
+    def __init__(self, num_heads: int = 6, embed_dim: int = 384, mlp_ratio: float = 4., dropout: float = 0.,
+                 attention_dropout: float = 0.):
+        super().__init__(
+            num_heads=num_heads,
+            hidden_dim=embed_dim,
+            mlp_dim=int(embed_dim * mlp_ratio),
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+        )
+        self.net_type = "vit"
 
 
 class BlockAdapter(nn.Module):

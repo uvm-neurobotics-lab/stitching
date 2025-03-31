@@ -71,7 +71,7 @@ def validate_part(part_cfg):
         raise ValueError(f"Each part in the part list should consist of a single class with args.")
     cls_name, args = next(iter(part_cfg.items()))
     part_class_from_name(cls_name)
-    if not isinstance(args, dict):
+    if args and not isinstance(args, dict):
         raise ValueError(f"Expected a dictionary of arguments for {cls_name}, but instead got: {args}")
     return True
 
@@ -90,7 +90,7 @@ def part_from_config(part_cfg):
         raise ValueError(f"Invalid part config:\n{part_cfg}")
     cls_name, args = next(iter(part_cfg.items()))
     PartClass = part_class_from_name(cls_name)
-    args = args.copy()
+    args = args.copy() if args is not None else {}
     if "frozen" in args:
         del args["frozen"]
     return PartClass(**args)
@@ -128,7 +128,7 @@ class Assembly(nn.Module):
             part = part_from_config(c)
             part_list.append(part)
             part_args = next(iter(c.values()))
-            if part_args.get("frozen"):
+            if part_args is not None and part_args.get("frozen"):
                 freeze(part)
         self.parts = nn.ModuleList(part_list)
 
