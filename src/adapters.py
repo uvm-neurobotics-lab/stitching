@@ -128,39 +128,47 @@ class BlockAdapter(nn.Module):
     """
     An adapter which can go beyond a simple layer and form more complex blocks.
     """
-    def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=1, kernel_size=3, stride=1,
-                 padding=1, leading_norm=True):
+    def __init__(self, in_channels, out_channels, hid_channels=None, mode='cnn2cnn', num_fc=0, num_conv=0,
+                 kernel_size=3, stride=1, padding=1, leading_norm=True):
         super().__init__()
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
             raise ValueError('Must supply only num_fc or num_conv.')
         assert mode in ['cnn2cnn', 'cnn2vit', 'vit2cnn', 'vit2vit'], 'mode is not recognized'
         self.mode = mode
+        if not hid_channels:
+            hid_channels = out_channels
 
         layers = []
         if num_fc > 0:
             if leading_norm:
                 layers.append(nn.LayerNorm(in_channels))
+            ichans = in_channels
+            ochans = hid_channels
             for i in range(num_fc):
-                if i == 0:
-                    layers.append(nn.Linear(in_channels, out_channels))
-                else:
-                    layers.append(nn.Linear(out_channels, out_channels))
-                layers.append(nn.LayerNorm(out_channels))
+                if i == (num_fc - 1):
+                    ochans = out_channels
+                layers.append(nn.Linear(ichans, ochans))
+                layers.append(nn.LayerNorm(ochans))
                 # TODO: Inherited this particular type of ReLU from DeRy. No reason to necessarily prefer it.
                 layers.append(nn.LeakyReLU(0.1, inplace=True))
+                if i == 0:
+                    ichans = ochans
 
         elif num_conv > 0:
             if leading_norm:
                 layers.append(nn.BatchNorm2d(in_channels))
+            ichans = in_channels
+            ochans = hid_channels
+            cur_stride = stride
             for i in range(num_conv):
-                if i == 0:
-                    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride,
-                                            padding=padding))
-                else:
-                    layers.append(nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=1,
-                                            padding=padding))
-                layers.append(nn.BatchNorm2d(out_channels))
+                if i == (num_fc - 1):
+                    ochans = out_channels
+                layers.append(nn.Conv2d(ichans, ochans, kernel_size=kernel_size, stride=cur_stride, padding=padding))
+                layers.append(nn.BatchNorm2d(ochans))
                 layers.append(nn.LeakyReLU(0.1, inplace=True))
+                if i == 0:
+                    ichans = ochans
+                    cur_stride = 1
 
         self.adapter = nn.Sequential(*layers)
 
