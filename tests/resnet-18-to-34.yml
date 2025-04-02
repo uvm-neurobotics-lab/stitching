@@ -1,0 +1,101 @@
+#
+# This config attempts to expand a ResNet-18 by adding a new block after every existing block.
+#
+# For reference, different versions of ResNet-18 available are:
+#  - resnet18.fb_swsl_ig1b_ft_in1k:    73.3% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
+#  - resnet18.fb_ssl_yfcc100m_ft_in1k: 72.6% (Pretrained on YFCC100M using SSL, then fine-tuned on IN-1k)
+#  - resnet18.a1_in1k:                 71.5% (ResNet Strikes Back A1 recipe)
+#  - resnet18.a2_in1k:                 70.6% (ResNet Strikes Back A2 recipe)
+#  - resnet18.a3_in1k:                 68.2% (ResNet Strikes Back A3 recipe)
+#  - resnet18.gluon_in1k:              70.8% (Bag-of-Tricks based recipe)
+#  - resnet18.tv_in1k:                 69.8% (Original Torchvision model)
+#
+
+# Transform a [2, 2, 2, 2] architecture into [3, 4, 6, 3] (so [+1, +2, +4, +1]).
+assembly:
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: x
+      block_output: layer1
+      frozen: true
+  - ResNetBasicBlock:
+      in_channels: 64
+      out_channels: 64
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: layer2
+      block_output: layer2
+      frozen: true
+  - ResNetBasicBlock:
+      in_channels: 128
+      out_channels: 128
+  - ResNetBasicBlock:
+      in_channels: 128
+      out_channels: 128
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: layer3
+      block_output: layer3
+      frozen: true
+  - ResNetBasicBlock:
+      in_channels: 256
+      out_channels: 256
+  - ResNetBasicBlock:
+      in_channels: 256
+      out_channels: 256
+  - ResNetBasicBlock:
+      in_channels: 256
+      out_channels: 256
+  - ResNetBasicBlock:
+      in_channels: 256
+      out_channels: 256
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: layer4
+      block_output: layer4
+      frozen: true
+  - ResNetBasicBlock:
+      in_channels: 512
+      out_channels: 512
+  - Subnet:
+      backend: timm
+      model_name: resnet18.a1_in1k
+      block_input: global_pool
+      block_output: fc
+      output_type: vector
+      frozen: true
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: 100
+
+  # Optimization
+  batch_size: 256
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: SequentialLR
+  lr_scheduler_args:
+    cadence: steps  # Can be "steps" or "epochs" (default: epochs).
+    milestones:
+      - 626  # Linear warm-up for one epoch.
+    schedulers:
+      - lr_scheduler: LinearLR
+        lr_scheduler_args:
+          total_iters: 626  # NOTE: This must always be in steps (batches per epoch)! Depends on batch size.
+          start_factor: 1.0e-3
+      - lr_scheduler: CosineAnnealingLR
+        lr_scheduler_args:
+          T_max: 61974  # NOTE: This must always be epochs * batches per epoch! INet has 256 * 8 * 626 images.
+          eta_min: 1.0e-5
