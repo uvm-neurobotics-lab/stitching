@@ -1,6 +1,7 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
+import numpy as np
 import torch.nn as nn
 
 import adapters
@@ -177,6 +178,11 @@ class Assembly(nn.Module):
                 x = part(x)
                 if isinstance(x, dict):
                     x = list(x.values())[0]
+                if getattr(part, "output_type", None) == "vector":
+                    out_shape = [1, 1]
+                else:
+                    sz = int(np.sqrt(x.shape[1]))
+                    out_shape = [sz, sz]
 
         return x
 

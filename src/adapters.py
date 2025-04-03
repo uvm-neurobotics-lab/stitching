@@ -2,6 +2,7 @@
 Library of adapter modules for stitching.
 """
 from functools import partial
+from math import sqrt
 
 import torch
 import torch.nn as nn
@@ -267,7 +268,7 @@ class DeRyAdapter(nn.Module):
 
     def forward(self, x, input_shape=None):
         if self.mode == 'cnn2vit':
-            # CNN 2 Vsion Transformer(VIT)
+            # CNN 2 Vision Transformer (VIT)
             x = self.adapter(x)
             return x.flatten(2).transpose(1, 2), (x.shape[2], x.shape[3])
 
@@ -278,13 +279,12 @@ class DeRyAdapter(nn.Module):
 
         elif self.mode == 'vit2cnn':
             # VIT 2 CNN
-            out_channels = x.shape[2]
-            token_num = x.shape[1]
-            w, h = input_shape
-            # noinspection PyProtectedMember
-            torch._assert(w * h == token_num, 'When VIT to CNN, w x h == token_num')
-
-            x = x.view(-1, w, h, out_channels).permute(0, 3, 1, 2)
+            # Drop the extra tokens if there are any. We expect the number of tokens to be a perfect square, so we can
+            # map it onto a square image format.
+            img_sz = int(sqrt(x.shape[1]))
+            token_limit = img_sz ** 2
+            x = x[:, :token_limit, :]
+            x = x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
             x = self.adapter(x)
             return x, (x.shape[2], x.shape[3])
 

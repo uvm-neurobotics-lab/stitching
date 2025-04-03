@@ -4,7 +4,7 @@
 #  - vit_tiny_patch16_224.augreg_in21k_ft_in1k: 75.5% (Self-supervised + fine-tuning from "How to train your ViT")
 #
 
-# Architecture.
+# CNN --> ViT architecture
 assembly:
   - Subnet:
       backend: timm
@@ -14,7 +14,7 @@ assembly:
       frozen: true
   - DeRyAdapter:
       mode: cnn2vit
-      num_fc: 1
+      num_conv: 1
       in_channels: 128
       out_channels: 192
       nonlinearity: false
@@ -25,6 +25,28 @@ assembly:
       block_output: head
       output_type: vector
       frozen: true
+
+# ViT --> CNN architecture
+#assembly:
+#  - Subnet:
+#      backend: timm
+#      model_name: vit_tiny_patch16_224.augreg_in21k_ft_in1k
+#      block_input: x
+#      block_output: blocks.5
+#      frozen: true
+#  - DeRyAdapter:
+#      mode: vit2cnn
+#      num_conv: 1
+#      in_channels: 192
+#      out_channels: 128
+#      nonlinearity: false
+#  - Subnet:
+#      backend: timm
+#      model_name: resnet34.a2_in1k
+#      block_input: layer3
+#      block_output: fc
+#      output_type: vector
+#      frozen: true
 
 
 train_config:
