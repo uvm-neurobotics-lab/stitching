@@ -12,12 +12,11 @@ assembly:
       block_input: x
       block_output: layer2
       frozen: true
-  - DeRyAdapter:
+  - SimpleAdapter:
       mode: cnn2vit
       num_conv: 1
       in_channels: 128
       out_channels: 192
-      nonlinearity: false
   - Subnet:
       backend: timm
       model_name: vit_tiny_patch16_224.augreg_in21k_ft_in1k
@@ -34,12 +33,11 @@ assembly:
 #      block_input: x
 #      block_output: blocks.5
 #      frozen: true
-#  - DeRyAdapter:
+#  - SimpleAdapter:
 #      mode: vit2cnn
 #      num_conv: 1
 #      in_channels: 192
 #      out_channels: 128
-#      nonlinearity: false
 #  - Subnet:
 #      backend: timm
 #      model_name: resnet34.a2_in1k

@@ -24,6 +24,20 @@ NORM_MAPPING["instance"] = NORM_MAPPING["in"]
 NORM_MAPPING["instancenorm"] = NORM_MAPPING["in"]
 
 
+def img2token(x):
+    return x.flatten(2).transpose(1, 2)
+
+
+def token2img(x):
+    # Drop the extra tokens if there are any. We expect the number of tokens to be a perfect square, so we can map it
+    # onto a square image format. But ViT, for instance, has an extra token.
+    # TODO: Investigate why ViT has this.
+    img_sz = int(sqrt(x.shape[1]))
+    token_limit = img_sz ** 2
+    x = x[:, :token_limit, :]
+    return x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
+
+
 def conv3x3(in_channels, out_channels, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride,
@@ -146,22 +160,26 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
         self.net_type = "vit"
 
 
-class BlockAdapter(nn.Module):
+class SimpleAdapter(nn.Module):
     """
-    An adapter which can go beyond a simple layer and form more complex blocks.
+    An adapter which can form either a simple layer or slightly more complex blocks.
     """
     def __init__(self, in_channels, out_channels, hid_channels=None, mode='cnn2cnn', num_fc=0, num_conv=0,
-                 kernel_size=3, stride=1, padding=1, leading_norm=True):
+                 kernel_size=3, stride=1, padding=1, leading_norm=True, nonlinearity=True):
         super().__init__()
+        if num_fc < 0 or num_conv < 0:
+            raise ValueError("num_fc and num_conv must be non-negative.")
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
-            raise ValueError('Must supply only num_fc or num_conv.')
-        assert mode in ['cnn2cnn', 'cnn2vit', 'vit2cnn', 'vit2vit'], 'mode is not recognized'
+            raise ValueError("Must supply only num_fc or num_conv.")
+        if mode not in ("cnn2cnn", "cnn2vit", "vit2cnn", "vit2vit"):
+            raise ValueError(f"Unrecognized mode: {mode}")
         self.mode = mode
+        self.is_linear = num_fc > 0
         if not hid_channels:
             hid_channels = out_channels
 
         layers = []
-        if num_fc > 0:
+        if self.is_linear:
             if leading_norm:
                 layers.append(nn.LayerNorm(in_channels))
             ichans = in_channels
@@ -172,11 +190,12 @@ class BlockAdapter(nn.Module):
                 layers.append(nn.Linear(ichans, ochans))
                 layers.append(nn.LayerNorm(ochans))
                 # TODO: Inherited this particular type of ReLU from DeRy. No reason to necessarily prefer it.
-                layers.append(nn.LeakyReLU(0.1, inplace=True))
+                if nonlinearity:
+                    layers.append(nn.LeakyReLU(0.1, inplace=True))
                 if i == 0:
                     ichans = ochans
 
-        elif num_conv > 0:
+        else:
             if leading_norm:
                 layers.append(nn.BatchNorm2d(in_channels))
             ichans = in_channels
@@ -187,7 +206,8 @@ class BlockAdapter(nn.Module):
                     ochans = out_channels
                 layers.append(nn.Conv2d(ichans, ochans, kernel_size=kernel_size, stride=cur_stride, padding=padding))
                 layers.append(nn.BatchNorm2d(ochans))
-                layers.append(nn.LeakyReLU(0.1, inplace=True))
+                if nonlinearity:
+                    layers.append(nn.LeakyReLU(0.1, inplace=True))
                 if i == 0:
                     ichans = ochans
                     cur_stride = 1
@@ -196,9 +216,17 @@ class BlockAdapter(nn.Module):
 
     def forward(self, x, input_shape=None):
         if self.mode == 'cnn2vit':
-            # CNN 2 Vsion Transformer(VIT)
-            x = self.adapter(x)
-            return x.flatten(2).transpose(1, 2), (x.shape[2], x.shape[3])
+            # Assume the image size will be maintained in the adapter.
+            # TODO: This shape tracking doesn't actually matter and will be removed in the near future.
+            imshape = (x.shape[2], x.shape[3])
+            # CNN 2 Vision Transformer (VIT)
+            if self.is_linear:
+                # If the adapter is linear, we need to transform the input first.
+                x = self.adapter(img2token(x))
+            else:
+                # Otherwise, we transform after.
+                x = img2token(self.adapter(x))
+            return x, imshape
 
         elif self.mode == 'cnn2cnn':
             # CNN 2 CNN
@@ -207,14 +235,12 @@ class BlockAdapter(nn.Module):
 
         elif self.mode == 'vit2cnn':
             # VIT 2 CNN
-            out_channels = x.shape[2]
-            token_num = x.shape[1]
-            w, h = input_shape
-            # noinspection PyProtectedMember
-            torch._assert(w * h == token_num, 'When VIT to CNN, w x h == token_num')
-
-            x = x.view(-1, w, h, out_channels).permute(0, 3, 1, 2)
-            x = self.adapter(x)
+            if not self.is_linear:
+                # If the adapter is convolutional, we need to transform the input first.
+                x = self.adapter(token2img(x))
+            else:
+                # Otherwise, we transform after.
+                x = token2img(self.adapter(x))
             return x, (x.shape[2], x.shape[3])
 
         elif self.mode in 'vit2vit':
@@ -230,9 +256,12 @@ class DeRyAdapter(nn.Module):
     def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=0, stride=1, leading_norm=True,
                  trailing_norm=False, nonlinearity=True):
         super().__init__()
+        if num_fc < 0 or num_conv < 0:
+            raise ValueError("num_fc and num_conv must be non-negative.")
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
-            raise ValueError('Must supply one and only one of num_fc or num_conv.')
-        assert mode in ['cnn2cnn', 'cnn2vit', 'vit2cnn', 'vit2vit'], 'mode is not recognized'
+            raise ValueError("Must supply only num_fc or num_conv.")
+        if mode not in ("cnn2cnn", "cnn2vit", "vit2cnn", "vit2vit"):
+            raise ValueError(f"Unrecognized mode: {mode}")
         self.mode = mode
 
         layers = []
@@ -270,7 +299,10 @@ class DeRyAdapter(nn.Module):
         if self.mode == 'cnn2vit':
             # CNN 2 Vision Transformer (VIT)
             x = self.adapter(x)
-            return x.flatten(2).transpose(1, 2), (x.shape[2], x.shape[3])
+            # TODO: This shape tracking doesn't actually matter and will be removed in the near future.
+            imshape = (x.shape[2], x.shape[3])
+            x = img2token(x)
+            return x, imshape
 
         elif self.mode == 'cnn2cnn':
             # CNN 2 CNN
@@ -279,12 +311,7 @@ class DeRyAdapter(nn.Module):
 
         elif self.mode == 'vit2cnn':
             # VIT 2 CNN
-            # Drop the extra tokens if there are any. We expect the number of tokens to be a perfect square, so we can
-            # map it onto a square image format.
-            img_sz = int(sqrt(x.shape[1]))
-            token_limit = img_sz ** 2
-            x = x[:, :token_limit, :]
-            x = x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
+            x = token2img(x)
             x = self.adapter(x)
             return x, (x.shape[2], x.shape[3])
 
