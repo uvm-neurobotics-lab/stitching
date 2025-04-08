@@ -31,7 +31,10 @@ def img2token(x):
 def token2img(x):
     # Drop the extra tokens if there are any. We expect the number of tokens to be a perfect square, so we can map it
     # onto a square image format. But ViT, for instance, has an extra token.
-    # TODO: Investigate why ViT has this.
+    # FIXME: The reason for the extra token is that ViT follows a BERT method, where the first token is a "class" token,
+    #        and this token is reserved as the output of the classification. So what we are doing here is dropping the
+    #        last image patch, and a linear combination of the first feature map pixels will become the output token.
+    #        This is pretty weird and should be changed.
     img_sz = int(sqrt(x.shape[1]))
     token_limit = img_sz ** 2
     x = x[:, :token_limit, :]

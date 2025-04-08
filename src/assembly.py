@@ -159,13 +159,16 @@ class Assembly(nn.Module):
                 if isinstance(x, dict):
                     x = list(x.values())[0]
             elif part.net_type == "swin":
-                x = part(x, out_shape)
+                # Swin takes 2D input, but in [B, H, W, C] instead of [B, C, H, W].
+                x = x.permute(0, 2, 3, 1)
+                x = part(x)
                 if isinstance(x, dict):
                     x = list(x.values())[0]
                 if getattr(part, "output_type", None) == "vector":
                     out_shape = [1, 1]
                 else:
-                    x, out_shape = x
+                    x = x.permute(0, 3, 1, 2)
+                    out_shape = (x.shape[2], x.shape[3])
             elif part.net_type == "cnn":
                 x = part(x)
                 if isinstance(x, dict):
