@@ -16,9 +16,10 @@ assembly:
       model_name: resnet50.a1_in1k
       block_input: x
       block_output: layer2
+      in_format: img
+      out_format: img
       frozen: true
   - SimpleAdapter:
-      mode: cnn2cnn  # Swin takes 2D image input.
       num_conv: 1
       in_channels: 512
       out_channels: 384
@@ -27,7 +28,8 @@ assembly:
       model_name: swin_t
       block_input: features.5
       block_output: head
-      output_type: vector
+      in_format: [bhwc, [14, 14]]
+      out_format: vector
       frozen: true
 
 

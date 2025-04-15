@@ -19,8 +19,7 @@ assembly:
       block_input: x
       block_output: layer3.0
       frozen: true
-  - DeRyAdapter:
-      mode: cnn2cnn
+  - SimpleAdapter:
       num_conv: 1
       in_channels: 256
       out_channels: 256

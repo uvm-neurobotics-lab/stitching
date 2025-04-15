@@ -13,6 +13,8 @@ assembly:
       model_name: vit_small_patch16_224.augreg_in1k
       block_input: x
       block_output: blocks.5
+      in_format: img
+      out_format: bert
       frozen: true
 #  - DeRyAdapter:
 #      mode: vit2vit
@@ -26,7 +28,8 @@ assembly:
       model_name: vit_small_patch16_224.augreg_in21k_ft_in1k
       block_input: blocks.6
       block_output: head
-      output_type: vector
+      in_format: bert
+      out_format: vector
       frozen: true
 
 

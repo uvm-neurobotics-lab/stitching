@@ -11,9 +11,10 @@ assembly:
       model_name: resnet34.a2_in1k
       block_input: x
       block_output: layer2
+      in_format: img
+      out_format: img
       frozen: true
   - SimpleAdapter:
-      mode: cnn2vit
       num_conv: 1
       in_channels: 128
       out_channels: 192
@@ -22,7 +23,8 @@ assembly:
       model_name: vit_tiny_patch16_224.augreg_in21k_ft_in1k
       block_input: blocks.6
       block_output: head
-      output_type: vector
+      in_format: [bert, 196]
+      out_format: vector
       frozen: true
 
 # ViT --> CNN architecture
@@ -32,18 +34,20 @@ assembly:
 #      model_name: vit_tiny_patch16_224.augreg_in21k_ft_in1k
 #      block_input: x
 #      block_output: blocks.5
+#      in_format: img
+#      out_format: bert
 #      frozen: true
 #  - SimpleAdapter:
-#      mode: vit2cnn
 #      num_conv: 1
-#      in_channels: 192
+#      in_channels: 384  # 192 * 2 to account for the output token
 #      out_channels: 128
 #  - Subnet:
 #      backend: timm
 #      model_name: resnet34.a2_in1k
 #      block_input: layer3
 #      block_output: fc
-#      output_type: vector
+#      in_format: [img, [28, 28]]
+#      out_format: vector
 #      frozen: true
 
 

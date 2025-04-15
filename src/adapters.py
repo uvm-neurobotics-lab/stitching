@@ -4,7 +4,6 @@ Library of adapter modules for stitching.
 from functools import partial
 from math import sqrt
 
-import torch
 import torch.nn as nn
 import torchvision
 
@@ -66,7 +65,8 @@ class ResNetBasicBlock(nn.Module):
             raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
-        self.net_type = "cnn"
+        self.in_fmt = "img"
+        self.out_fmt = "img"
 
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(in_channels, out_channels, stride)
@@ -106,7 +106,8 @@ class ResNetBottleneck(nn.Module):
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
         norm_layer = NORM_MAPPING[norm_type]
-        self.net_type = "cnn"
+        self.in_fmt = "img"
+        self.out_fmt = "img"
 
         width = int((out_channels / self.expansion) * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
@@ -160,29 +161,29 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
             dropout=dropout,
             attention_dropout=attention_dropout,
         )
-        self.net_type = "vit"
+        self.in_fmt = "bert"
+        self.out_fmt = "bert"
 
 
 class SimpleAdapter(nn.Module):
     """
     An adapter which can form either a simple layer or slightly more complex blocks.
     """
-    def __init__(self, in_channels, out_channels, hid_channels=None, mode='cnn2cnn', num_fc=0, num_conv=0,
-                 kernel_size=3, stride=1, padding=1, leading_norm=True, nonlinearity=True):
+    def __init__(self, in_channels, out_channels, hid_channels=None, num_fc=0, num_conv=0, kernel_size=3, stride=1,
+                 padding=1, leading_norm=True, nonlinearity=True):
         super().__init__()
         if num_fc < 0 or num_conv < 0:
             raise ValueError("num_fc and num_conv must be non-negative.")
         if (num_fc == 0 and num_conv == 0) or (num_fc > 0 and num_conv > 0):
             raise ValueError("Must supply only num_fc or num_conv.")
-        if mode not in ("cnn2cnn", "cnn2vit", "vit2cnn", "vit2vit"):
-            raise ValueError(f"Unrecognized mode: {mode}")
-        self.mode = mode
         self.is_linear = num_fc > 0
         if not hid_channels:
             hid_channels = out_channels
 
         layers = []
         if self.is_linear:
+            self.in_fmt = None
+            self.out_fmt = None
             if leading_norm:
                 layers.append(nn.LayerNorm(in_channels))
             ichans = in_channels
@@ -199,6 +200,8 @@ class SimpleAdapter(nn.Module):
                     ichans = ochans
 
         else:
+            self.in_fmt = "img"
+            self.out_fmt = "img"
             if leading_norm:
                 layers.append(nn.BatchNorm2d(in_channels))
             ichans = in_channels
@@ -217,44 +220,16 @@ class SimpleAdapter(nn.Module):
 
         self.adapter = nn.Sequential(*layers)
 
-    def forward(self, x, input_shape=None):
-        if self.mode == 'cnn2vit':
-            # Assume the image size will be maintained in the adapter.
-            # TODO: This shape tracking doesn't actually matter and will be removed in the near future.
-            imshape = (x.shape[2], x.shape[3])
-            # CNN 2 Vision Transformer (VIT)
-            if self.is_linear:
-                # If the adapter is linear, we need to transform the input first.
-                x = self.adapter(img2token(x))
-            else:
-                # Otherwise, we transform after.
-                x = img2token(self.adapter(x))
-            return x, imshape
-
-        elif self.mode == 'cnn2cnn':
-            # CNN 2 CNN
-            x = self.adapter(x)
-            return x, (x.shape[2], x.shape[3])
-
-        elif self.mode == 'vit2cnn':
-            # VIT 2 CNN
-            if not self.is_linear:
-                # If the adapter is convolutional, we need to transform the input first.
-                x = self.adapter(token2img(x))
-            else:
-                # Otherwise, we transform after.
-                x = token2img(self.adapter(x))
-            return x, (x.shape[2], x.shape[3])
-
-        elif self.mode in 'vit2vit':
-            # VIT/Swin 2 VIT/Swin
-            return self.adapter(x), input_shape
+    def forward(self, x):
+        return self.adapter(x)
 
 
 class DeRyAdapter(nn.Module):
     """
     This is the adapter as it appeared in Deep Model Reassembly (DeRy) (roughly, with modifications).
     From: https://github.com/Adamdad/DeRy/blob/main/mmcls_addon/models/backbones/dery.py
+
+    This does not have `in_fmt`, `out_fmt` fields, so this is now deprecated legacy code.
     """
     def __init__(self, in_channels, out_channels, mode='cnn2cnn', num_fc=0, num_conv=0, stride=1, leading_norm=True,
                  trailing_norm=False, nonlinearity=True):

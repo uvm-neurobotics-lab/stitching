@@ -25,8 +25,7 @@ assembly:
       block_input: x
       block_output: layer2
       frozen: true
-  - DeRyAdapter:
-      mode: cnn2cnn
+  - SimpleAdapter:
       num_conv: 1
       in_channels: 128
       out_channels: 128
@@ -36,7 +35,7 @@ assembly:
       model_name: resnet18.a2_in1k
       block_input: layer3
       block_output: fc
-      output_type: vector
+      out_format: vector
       frozen: true
 
 

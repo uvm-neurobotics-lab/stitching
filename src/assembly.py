@@ -1,20 +1,170 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
+import types
+from typing import AnyStr, Optional, Tuple, Union
+
 import numpy as np
+import torch
 import torch.nn as nn
 
 import adapters
 import utils
-from utils.models import MODEL_ZOO, load_subnet
+from utils.models import load_subnet
+
+
+def img2bhwc(x):
+    return x.permute(0, 2, 3, 1)
+
+
+def bhwc2img(x):
+    return x.permute(0, 3, 1, 2)
+
+
+def img2token(x):
+    # FIXME: Add position encoding??
+    return x.flatten(2).transpose(1, 2)
+
+
+def token2img(x):
+    img_sz = int(np.sqrt(x.shape[1]))
+    if x.shape[1] != img_sz ** 2:
+        raise RuntimeError(f"Sequence length ({x.shape[1]}) must be a perfect square to transform to image format.")
+    return x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
+
+
+def nonstrict_token2img(x):
+    """WARNING: Deprecated."""
+    # Drop the extra tokens if there are any. We expect the number of tokens to be a perfect square, so we can map it
+    # onto a square image format. But ViT, for instance, has an extra token.
+    img_sz = int(np.sqrt(x.shape[1]))
+    token_limit = img_sz ** 2
+    x = x[:, :token_limit, :]
+    return x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
+
+
+def bert2img(x):
+    """
+    Transform from a BERT-style sequence representation: the leading token is a special slot reserved for output, and
+    the rest of the sequence is the image patches (in row-major order).
+    """
+    img_sz = int(np.sqrt(x.shape[1]))
+    if x.shape[1] != (img_sz ** 2 + 1):
+        raise RuntimeError(f"Sequence length should be a perfect square plus one output token: {x.shape[1]}.")
+    out_token = x[:, 0, :]
+    x = x[:, 1:, :]
+    images = x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
+    # Now broadcast the output token over (H x W) to create a special "channel".
+    # Reshape to [B, C, 1, 1] and broadcast to [B, C, H, W].
+    out_img = out_token[:, :, None, None].expand(-1, -1, img_sz, img_sz)
+    # Concatenate along the channel dimension
+    return torch.cat([images, out_img], dim=1)  # [B, 2C, H, W]
+
+
+def img2bert(x):
+    """
+    Transform to a BERT-style sequence representation: the leading token is a special slot reserved for output, and
+    the rest of the sequence is the image patches (in row-major order).
+    FIXME: Add position encoding??
+    FIXME: To be able to learn what to put as the output token, we would need the adapter to know that it should output
+           an extra pixel. Without that, the only thing we can do is add a constant for output token. Or perform some
+           fixed operation, like averaging all the patch values.
+    """
+    x = x.flatten(2)
+    # Add class/output token to beginning of sequence.
+    # This one simply adds a token consisting of all 1's.
+    x = torch.cat([torch.ones_like(x[:, :, 0:1]), x], dim=2)
+    # This one adds a token which is the average of all the other tokens.
+    # x = torch.cat([torch.mean(x, dim=2, keepdim=True), x], dim=2)
+    return x.transpose(1, 2)
+
+
+def to_square_img_size(size_1d):
+    img_sz = int(np.sqrt(size_1d))
+    if size_1d != img_sz ** 2:
+        raise RuntimeError(f"Sequence length ({size_1d}) must be a perfect square to transform to image format.")
+    size_1d = (img_sz, img_sz)
+    return size_1d
+
+
+TRANSFORM = {
+    ("img", "bhwc"): img2bhwc,
+    ("bhwc", "img"): bhwc2img,
+    ("img", "bert"): img2bert,
+    ("bert", "img"): bert2img,
+    ("bhwc", "bert"): lambda x: img2bert(bhwc2img(x)),
+    ("bert", "bhwc"): lambda x: img2bhwc(bert2img(x)),
+}
+
+
+def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[Union[str, Tuple]]):
+    """
+    Converts the given tensor from current format into desired format.
+
+    Format descriptions are a pair of [string, size]. String should be a type available in `TRANSFORM` and describes the
+    format of the input: 2D image, 1D sequence, etc. Size is the size of the image or sequence. All inputs are assumed
+    to represent images. Therefore, we always convert to an image before doing any resizing; resizing behaves as image
+    upsampling/downsampling.
+
+    Args:
+        x: The tensor to transform.
+        cur_fmt: The current format.
+        target_fmt: The desired format.
+
+    Returns:
+        torch.Tensor: The transformed tensor.
+    """
+    # Parse inputs.
+    if not target_fmt:
+        # If no target format is requested, then we can just keep the same format.
+        return x
+
+    if not isinstance(cur_fmt, str):
+        cur_fmt, _ = cur_fmt  # Current size is ignored, b/c we just use the size of the tensor.
+    if cur_fmt == "img":
+        cur_sz = tuple(x.shape[2:])
+    elif cur_fmt == "bhwc":
+        cur_sz = tuple(x.shape[1:3])
+    elif cur_fmt == "bert":
+        cur_sz = x.shape[1] - 1
+    else:
+        raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
+
+    if isinstance(target_fmt, str):
+        target_sz = None
+    else:
+        target_fmt, target_sz = target_fmt
+        if isinstance(target_sz, int):
+            # If a 1D size is requested, determine the equivalent square image size.
+            target_sz = to_square_img_size(target_sz)
+        elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 2:
+            target_sz = tuple(target_sz)
+        else:
+            raise RuntimeError(f"Target size should be either an int or a pair but got: {target_sz}")
+
+    # Convert the size.
+    if target_sz is not None and cur_sz != target_sz:
+        if cur_fmt != "img":
+            TRANSFORM[(cur_fmt, "img")](x)
+            cur_fmt = "img"
+        # TODO: Use a different mode? "nearest"? Not sure. Could also consider align_corners=True.
+        #       Also worth considering whether to instead use MaxPool or Conv when downsampling. Conv would allow us to
+        #       learn weights of the interpolation.
+        x = nn.functional.interpolate(x, target_sz, mode="bilinear")
+
+    # Convert the format.
+    if cur_fmt != target_fmt:
+        x = TRANSFORM[(cur_fmt, target_fmt)](x)
+
+    return x
 
 
 class Subnet(nn.Module):
 
-    def __init__(self, model_name, output_type=None, **kwargs):
+    def __init__(self, model_name, in_format=None, out_format=None, **kwargs):
         super().__init__()
-        self.output_type = output_type
-        self.net_type = MODEL_ZOO[model_name.split(".")[0]]["type"]
+        self.in_fmt = in_format
+        self.out_fmt = out_format
         self.net = load_subnet(model_name=model_name, **kwargs)
 
     def forward(self, x):
@@ -30,7 +180,8 @@ class BaseBlock(nn.Module):
         self.norm = nn.BatchNorm2d(channels)
         self.relu = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.net_type = "cnn"
+        self.in_fmt = "img"
+        self.out_fmt = "img"
 
     def forward(self, x):
         x = self.conv(x)
@@ -48,8 +199,8 @@ class ClassifierHead(nn.Module):
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape}.")
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.linear = nn.Linear(input_shape[0], num_classes)
-        self.net_type = "cnn"
-        self.output_type = "vector"
+        self.in_fmt = "img"
+        self.out_fmt = "vector"
 
     def forward(self, x):
         x = self.pool(x)
@@ -149,48 +300,21 @@ class Assembly(nn.Module):
             self.head = None
 
     def trunk_forward(self, x):
-        # TODO: This out_shape and net_type stuff is a complete mess, inherited from DeRy. Needs refactoring.
-        #       Ultimately we just need to know how to transform b/w token-based shapes and image-based shapes.
-        out_shape = (x.shape[2], x.shape[3])
-        for i, part in enumerate(self.parts):
-            if not hasattr(part, "net_type"):
-                # If no net type, we assume it already handles shape as input and output.
-                x, out_shape = part(x, out_shape)
-                if isinstance(x, dict):
-                    x = list(x.values())[0]
-            elif part.net_type == "swin":
-                # Swin takes 2D input, but in [B, H, W, C] instead of [B, C, H, W].
-                x = x.permute(0, 2, 3, 1)
-                x = part(x)
-                if isinstance(x, dict):
-                    x = list(x.values())[0]
-                if getattr(part, "output_type", None) == "vector":
-                    out_shape = [1, 1]
-                else:
-                    x = x.permute(0, 3, 1, 2)
-                    out_shape = (x.shape[2], x.shape[3])
-            elif part.net_type == "cnn":
-                x = part(x)
-                if isinstance(x, dict):
-                    x = list(x.values())[0]
-                if getattr(part, "output_type", None) == "vector":
-                    out_shape = [1, 1]
-                else:
-                    out_shape = (x.shape[2], x.shape[3])
-            elif part.net_type == "vit":
-                x = part(x)
-                if isinstance(x, dict):
-                    x = list(x.values())[0]
-                if getattr(part, "output_type", None) == "vector":
-                    out_shape = [1, 1]
-                else:
-                    sz = int(np.sqrt(x.shape[1]))
-                    out_shape = [sz, sz]
+        cur_fmt = "img"  # Currently, all inputs are known to be images.
+        for part in self.parts:
+            x = reformat(x, cur_fmt, getattr(part, "in_fmt", None))  # Convert to the format requested by part.
+            x = part(x)  # Execute the part.
+            if isinstance(x, dict):  # If part is a GraphModule, we need to extract its output from a dict.
+                x = list(x.values())[0]
+            out_fmt = getattr(part, "out_fmt", None)  # Update the format; if None, then format is unchanged.
+            if out_fmt is not None:
+                cur_fmt = out_fmt
 
-        return x
+        return x, cur_fmt
 
     def forward(self, x):
-        x = self.trunk_forward(x)
+        x, cur_fmt = self.trunk_forward(x)
         if self.head:
+            x = reformat(x, cur_fmt, getattr(self.head, "in_fmt", None))  # Convert to the format requested by head.
             x = self.head(x)
         return x
