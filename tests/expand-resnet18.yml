@@ -53,7 +53,7 @@ assembly:
       model_name: resnet18.a1_in1k
       block_input: global_pool
       block_output: fc
-      output_type: vector
+      out_format: vector
       frozen: true
 
 

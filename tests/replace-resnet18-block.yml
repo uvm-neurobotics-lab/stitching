@@ -29,7 +29,7 @@ assembly:
       model_name: resnet18.a1_in1k
       block_input: layer4
       block_output: fc
-      output_type: vector
+      out_format: vector
       frozen: true
 
 

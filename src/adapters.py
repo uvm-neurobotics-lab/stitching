@@ -55,8 +55,8 @@ class ResNetBasicBlock(nn.Module):
     expansion = 1
     __constants__ = ['downsample']
 
-    def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1,
-                 base_width=64, dilation=1, norm_type="bn"):
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1, base_width=64, dilation=1,
+                 norm_type="bn"):
         super(ResNetBasicBlock, self).__init__()
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
@@ -65,6 +65,11 @@ class ResNetBasicBlock(nn.Module):
             raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        if in_channels != out_channels and downsample is None:
+            downsample = nn.Sequential(
+                conv1x1(in_channels, out_channels),
+                norm_layer(out_channels),
+            )
         self.in_fmt = "img"
         self.out_fmt = "img"
 
@@ -100,12 +105,17 @@ class ResNetBottleneck(nn.Module):
     expansion = 4
     __constants__ = ['downsample']
 
-    def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1,
-                 base_width=64, dilation=1, norm_type="bn"):
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1, base_width=64, dilation=1,
+                 norm_type="bn"):
         super(ResNetBottleneck, self).__init__()
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
         norm_layer = NORM_MAPPING[norm_type]
+        if in_channels != out_channels and downsample is None:
+            downsample = nn.Sequential(
+                conv1x1(in_channels, out_channels),
+                norm_layer(out_channels),
+            )
         self.in_fmt = "img"
         self.out_fmt = "img"
 
