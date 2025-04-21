@@ -151,7 +151,7 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
     # Convert the size.
     if target_sz is not None and cur_sz != target_sz:
         if cur_fmt != "img":
-            TRANSFORM[(cur_fmt, "img")](x)
+            x = TRANSFORM[(cur_fmt, "img")](x)
             cur_fmt = "img"
         # TODO: Use a different mode? "nearest"? Not sure. Could also consider align_corners=True.
         #       Also worth considering whether to instead use MaxPool or Conv when downsampling. Conv would allow us to
