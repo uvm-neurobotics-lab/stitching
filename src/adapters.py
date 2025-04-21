@@ -180,7 +180,7 @@ class SimpleAdapter(nn.Module):
     An adapter which can form either a simple layer or slightly more complex blocks.
     """
     def __init__(self, in_channels, out_channels, hid_channels=None, num_fc=0, num_conv=0, kernel_size=3, stride=1,
-                 padding=1, leading_norm=True, nonlinearity=True):
+                 padding=1, leading_norm=True, nonlinearity=True, fc_format=None):
         super().__init__()
         if num_fc < 0 or num_conv < 0:
             raise ValueError("num_fc and num_conv must be non-negative.")
@@ -192,8 +192,8 @@ class SimpleAdapter(nn.Module):
 
         layers = []
         if self.is_linear:
-            self.in_fmt = None
-            self.out_fmt = None
+            self.in_fmt = fc_format
+            self.out_fmt = fc_format
             if leading_norm:
                 layers.append(nn.LayerNorm(in_channels))
             ichans = in_channels

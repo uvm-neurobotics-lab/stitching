@@ -92,8 +92,12 @@ TRANSFORM = {
     ("bhwc", "img"): bhwc2img,
     ("img", "bert"): img2bert,
     ("bert", "img"): bert2img,
+    ("img", "token"): img2token,
+    ("token", "img"): token2img,
     ("bhwc", "bert"): lambda x: img2bert(bhwc2img(x)),
     ("bert", "bhwc"): lambda x: img2bhwc(bert2img(x)),
+    ("bhwc", "token"): lambda x: img2token(bhwc2img(x)),
+    ("token", "bhwc"): lambda x: img2bhwc(token2img(x)),
 }
 
 
