@@ -429,7 +429,7 @@ def listify(block_spec):
     return block_spec
 
 
-def load_model(model_name, backend, pretrained, ckp_path, verbose):
+def load_model(model_name, backend="pytorch", pretrained=True, ckp_path=None, verbose=False):
     if backend == 'timm':
         if ckp_path is not None:
             model = timm.create_model(model_name, pretrained=False, scriptable=True)
