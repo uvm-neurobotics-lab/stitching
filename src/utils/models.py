@@ -432,38 +432,38 @@ def listify(block_spec):
 def load_model(model_name, backend, pretrained, ckp_path, verbose):
     if backend == 'timm':
         if ckp_path is not None:
-            backbone = timm.create_model(model_name, pretrained=False, scriptable=True)
+            model = timm.create_model(model_name, pretrained=False, scriptable=True)
             if os.path.isfile(ckp_path):
                 if verbose:
                     print(f'Loading checkpoint from: {ckp_path}')
                 state_dict = torch.load(ckp_path, map_location='cpu')
-                missing_keys = backbone.load_state_dict(state_dict, strict=False)
+                missing_keys = model.load_state_dict(state_dict, strict=False)
                 if verbose:
                     print(missing_keys)
             else:
                 raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
-            backbone = timm.create_model(model_name, pretrained=pretrained, scriptable=True)
+            model = timm.create_model(model_name, pretrained=pretrained, scriptable=True)
 
     elif backend == 'pytorch':
         if ckp_path is not None:
-            backbone = torchvision.models.get_model(model_name, pretrained=False)
+            model = torchvision.models.get_model(model_name, pretrained=False)
             if os.path.isfile(ckp_path):
                 if verbose:
                     print(f'Loading checkpoint from: {ckp_path}')
                 state_dict = torch.load(ckp_path, map_location='cpu')
-                missing_keys = backbone.load_state_dict(state_dict, strict=False)
+                missing_keys = model.load_state_dict(state_dict, strict=False)
                 if verbose:
                     print(missing_keys)
             else:
                 raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
         else:
-            backbone = torchvision.models.get_model(model_name, pretrained=pretrained)
+            model = torchvision.models.get_model(model_name, pretrained=pretrained)
 
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
 
-    return backbone
+    return model
 
 
 def load_subnet(model_name, block_input, block_output, backend="pytorch", pretrained=True, ckp_path=None,

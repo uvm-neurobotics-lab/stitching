@@ -1,8 +1,7 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
-import types
-from typing import AnyStr, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -10,7 +9,7 @@ import torch.nn as nn
 
 import adapters
 import utils
-from utils.models import load_subnet
+from utils.models import load_model, load_subnet
 
 
 def img2bhwc(x):
@@ -163,6 +162,18 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
         x = TRANSFORM[(cur_fmt, target_fmt)](x)
 
     return x
+
+
+class Net(nn.Module):
+
+    def __init__(self, model_name, **kwargs):
+        super().__init__()
+        self.in_fmt = "img"
+        self.out_fmt = "vector"
+        self.net = load_model(model_name=model_name, **kwargs)
+
+    def forward(self, x):
+        return self.net(x)
 
 
 class Subnet(nn.Module):

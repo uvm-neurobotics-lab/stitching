@@ -1,0 +1,44 @@
+#
+# Train ResNet-18 from scratch.
+#
+# For reference, potential results of different training recipes:
+#  - resnet18.fb_swsl_ig1b_ft_in1k:    73.3% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
+#  - resnet18.fb_ssl_yfcc100m_ft_in1k: 72.6% (Pretrained on YFCC100M using SSL, then fine-tuned on IN-1k)
+#  - resnet18.a1_in1k:                 71.5% (ResNet Strikes Back A1 recipe; 600 epochs)
+#  - resnet18.a2_in1k:                 70.6% (ResNet Strikes Back A2 recipe; 300 epochs)
+#  - resnet18.a3_in1k:                 68.2% (ResNet Strikes Back A3 recipe; 100 epochs)
+#  - resnet18.gluon_in1k:              70.8% (Bag-of-Tricks based recipe)
+#  - resnet18.tv_in1k:                 69.8% (Original Torchvision model)
+#
+
+# Architecture to assemble. A series of blocks with adapters in between each.
+assembly:
+  - Net:
+      backend: timm
+      model_name: resnet18
+      pretrained: false
+
+save_checkpoints: true
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: 90
+
+  # Optimization
+  # This plus default data augmentation should approximate the recipe found in Torchvision:
+  #     https://github.com/pytorch/vision/tree/main/references/classification#resnet
+  batch_size: 256
+  optimizer: SGD
+  optimizer_args:
+    lr: 0.1
+    momentum: 0.9
+    weight_decay: 1e-4
+  lr_scheduler: StepLR
+  lr_scheduler_args:
+    step_size: 30
+    gamma: 0.1

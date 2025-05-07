@@ -16,13 +16,11 @@ assembly:
       in_format: img
       out_format: bert
       frozen: true
-#  - DeRyAdapter:
-#      mode: vit2vit
-#      num_fc: 1
-#      in_channels: 384
-#      out_channels: 384
-#      nonlinearity: false
-  - VisionTransformerBlock:
+  - SimpleAdapter:
+      num_fc: 1
+      in_channels: 384
+      out_channels: 384
+#  - VisionTransformerBlock:
   - Subnet:
       backend: timm
       model_name: vit_small_patch16_224.augreg_in21k_ft_in1k
@@ -46,8 +44,10 @@ train_config:
   # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
   # learning rate schedule and initial learning rate 0.001".
   batch_size: 256
-  optimizer: Adam
-  lr: 1.0e-3
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
   lr_scheduler: CosineAnnealingLR
   lr_scheduler_args:
     T_max: *epochs
