@@ -1,0 +1,50 @@
+#
+# Training a ViT-Small from scratch.
+#
+# For reference, here are the expected results of different training methods:
+#  - vit_small_patch16_224.augreg_in21k_ft_in1k: 81.4% (Self-supervised + fine-tuning from "How to train your ViT")
+#  - vit_small_patch16_224.augreg_in1k:          78.8% (Supervised method from "How to train your ViT")
+#
+
+# Architecture.
+assembly:
+  - Net:
+      backend: timm
+      model_name: vit_small_patch16_224
+      pretrained: false
+
+save_checkpoints: true
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: 300
+
+  # Optimization
+  # Loosely based on the configuration for training ViT-B found here, which achieves 81%:
+  #     https://github.com/pytorch/vision/tree/main/references/classification#vit_b_16
+  batch_size: 512  # --> 313 steps per epoch
+  max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.003
+    weight_decay: 0.3
+  lr_scheduler: SequentialLR
+  lr_scheduler_args:
+    cadence: steps  # Can be "steps" or "epochs" (default: epochs).
+    milestones:
+      - 9390  # Linear warm-up for 30 epochs.
+    schedulers:
+      - lr_scheduler: LinearLR
+        lr_scheduler_args:
+          total_iters: 9390  # NOTE: This must always be in steps (batches per epoch)! Depends on batch size.
+          start_factor: 0.033
+      - lr_scheduler: CosineAnnealingLR
+        lr_scheduler_args:
+          T_max: 84510  # NOTE: This must always be epochs * batches per epoch! INet has 512 * 8 * 313 images.
+                        # This is 313 * 300 - 9390.
+          eta_min: 0.0
