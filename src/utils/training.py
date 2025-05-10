@@ -277,6 +277,9 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     once_per_epoch = len(train_loader)
     print_freq = config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
+    if max_epochs > 30:
+        # TODO: Should make this configurable or come up with a better heuristic, but this works for now.
+        save_freq *= 10
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
     log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
