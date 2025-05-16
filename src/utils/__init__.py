@@ -470,6 +470,14 @@ def calculate_output_size_for_fc_layer(module, input_shape, max_size=int(1e4)):
     return feature_size
 
 
+def num_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def num_trainable_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 def sizeof(obj):
     """
     Estimates the size of the given object (which may include PyTorch Tensors). If the object is a collection then the

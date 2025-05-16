@@ -141,7 +141,7 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
         return {}
 
     if print_fn:
-        print_fn(f"Computing accuracy of {nbatches} batches from {header}...")
+        print_fn(f"Computing metrics on {nbatches} batches from {header}...")
 
     metric_values = defaultdict(SmoothedValue)
     num_processed_samples = 0
@@ -424,7 +424,9 @@ class StandardLog(BaseLog):
         metrics["Time/Step"] = time() - self.step_end_time
         non_bsize_metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
         if torch.cuda.is_available():
-            non_bsize_metrics["Max Mem"] = torch.cuda.max_memory_allocated() / 1024.0 / 1024.0
+            device = loss.device
+            non_bsize_metrics["Max Mem"] = torch.cuda.max_memory_allocated(device) / 1024.0 / 1024.0
+            torch.cuda.reset_peak_memory_stats(device)
 
         # Record metrics
         self.record(non_bsize_metrics, it, 1)
