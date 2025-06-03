@@ -21,7 +21,7 @@ import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
 from assembly import Assembly, validate_part, validate_part_list
-from utils import ensure_config_param, make_pretty, _and, of_type
+from utils import ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
 
 NUM_CORES = os.cpu_count()
 if hasattr(os, "sched_getaffinity"):
@@ -177,6 +177,7 @@ def setup_and_train(parser, config):
     logging.info("Constructing model.")
     model = Assembly(config["assembly"], config.get("head"), input_shape=input_shape)
     model.to(device)
+    logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
     training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
     return 0
