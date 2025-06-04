@@ -1,13 +1,13 @@
 #!/bin/bash
 
 #SBATCH --job-name=stitch
-#SBATCH --time=00:30:00
-#SBATCH --partition=dggpu
+#SBATCH --time=10:00:00
+#SBATCH --partition=nvgpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --gpus-per-task=8
-#SBATCH --mem-per-gpu=25G
+#SBATCH --cpus-per-task=8
+#SBATCH --gpus-per-task=2
+#SBATCH --mem=200G
 
 if [[ "$SLURM_JOB_NUM_NODES" -ne 1 && "$SLURM_JOB_NUM_NODES" -ne "$SLURM_NTASKS" ]]; then
     echo "Error: unfortunately, --ntasks ($SLURM_NTASKS) and --nodes ($SLURM_JOB_NUM_NODES) must be equal."
@@ -28,8 +28,8 @@ conda activate $CONDAENV
 
 head_node=$(hostname)
 nodes=$SLURM_NTASKS
-nproc=$SLURM_GPUS_PER_TASK
-CMD="src/stitch_train.py ${*:2}"
+nproc=$SLURM_GPUS_ON_NODE
+CMD="../../src/stitch_train.py -j 6 ${*:2}"
 echo "Launching command with $nodes nodes, $nproc GPUs per node, head node $head_node:"
 echo "    $CMD"
 
@@ -39,4 +39,4 @@ srun torchrun \
      --rdzv_id $RANDOM \
      --rdzv_backend c10d \
      --rdzv_endpoint $head_node:29500 \
-     src/stitch_train.py "${@:2}"
+     ../../src/stitch_train.py -j 6 "${@:2}"
