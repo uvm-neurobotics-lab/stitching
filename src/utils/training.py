@@ -4,7 +4,6 @@ Functions to support training networks in ways that can form the basis of a NAS 
 import logging
 import warnings
 from collections.abc import Mapping, Sequence, Set
-from enum import Enum
 from pathlib import Path
 
 import numpy as np
@@ -18,47 +17,10 @@ try:
 except ImportError:
     wandb = None
 
-from utils import ensure_config_param, make_pretty, restore_grad_state, gt_zero, gte_zero, _and, of_type, one_of
+from utils import ensure_config_param, make_pretty, restore_grad_state, gte_zero, _and, of_type, one_of
 from utils.logging import StandardLog
 from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
                                 optimizer_from_config, scheduler_from_config)
-
-
-class Metric(Enum):
-    """Metric for inclusion in a dataframe."""
-    TRAIN_ACC = "Train Accuracy"
-    TRAIN_LOSS = "Train Loss"
-    TRAIN_TIME = "Train Time"
-    VAL_ACC = "Validation Accuracy"
-    TEST_ACC = "Test Accuracy"
-    TEST_TIME = "Test Time"
-    PARAMS = "Parameters"
-    FLOPS = "FLOPS"
-    EPOCHS = "Epochs"
-    LR = "LR"
-
-    def get_name(self):
-        """Returns a human-readable name for the metric."""
-        return self.value
-
-    def get_filename(self):
-        """Returns a machine-compatible name for the metric, good for use as part of a filename or table column."""
-        return self.value.lower().replace(" ", "-")
-
-
-LOG2METRIC = {
-    "Loss": Metric.TRAIN_LOSS,
-    "Cumulative Train Time": Metric.TRAIN_TIME,
-    "Overall/Test Eval Time": Metric.TEST_TIME,
-    "Overall/Train Top-1 Accuracy": Metric.TRAIN_ACC,
-    "Overall/Valid Top-1 Accuracy": Metric.VAL_ACC,
-    "Overall/Test Top-1 Accuracy": Metric.TEST_ACC,
-    "Overall/Train Accuracy": Metric.TRAIN_ACC,
-    "Overall/Valid Accuracy": Metric.VAL_ACC,
-    "Overall/Test Accuracy": Metric.TEST_ACC,
-}
-
-NO_NAN_COLS = [Metric.TRAIN_ACC, Metric.VAL_ACC, Metric.TEST_ACC, Metric.TRAIN_TIME, Metric.TEST_TIME]
 
 
 def check_train_config(config: dict):
@@ -144,12 +106,15 @@ def validate_config(config):
     return config
 
 
-def per_epoch_metrics(metrics_map):
-    """ Transforms the output of `train()` into a mapping of (Metric enum) -> (trajectory over training epochs). """
+def per_epoch_metrics(metrics_map, **metadata):
+    """
+    Transforms the output of `train()` into a dataframe recording all metrics at the end of each training epoch.
+    Metrics are columns and epochs are rows. Kwarg inputs to the function are prepended as metadata to each row.
+    """
     # Reformat: list of records --> DF per step
     records = []
     for step, record in metrics_map.items():
-        records.append({"Step": step, **record})
+        records.append({**metadata, "Step": step, **record})
     df = pd.DataFrame.from_records(records)
 
     # We allow for a missing 0th epoch (meaning "checkpoint_initial_model" was false). If missing, prepend a blank row
@@ -168,18 +133,7 @@ def per_epoch_metrics(metrics_map):
     if not np.all(epoch_check):
         raise RuntimeError(f"Missing epochs: {list(np.argwhere(epoch_check == False).flatten())}")
 
-    # Reformat: DF --> list per column. Final format should be `result[metric][epoch]`.
-    result = {}
-    for src, dst in LOG2METRIC.items():
-        if src in per_epoch_metrics.columns:
-            if dst in NO_NAN_COLS:
-                # Sanity check: ensure no missing values in these columns, except potentially the 0th step.
-                metric_nans = np.isnan(per_epoch_metrics.loc[1:, src])
-                if np.any(metric_nans):
-                    raise RuntimeError(f"Missing values for {dst.get_name()} at epochs: "
-                                       f"{list(np.argwhere(metric_nans).flatten())}")
-            result[dst] = per_epoch_metrics[src].tolist()
-    return result
+    return per_epoch_metrics
 
 
 def filesafe_str(obj):

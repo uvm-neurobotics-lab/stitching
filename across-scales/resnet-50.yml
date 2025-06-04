@@ -1,0 +1,104 @@
+#
+# Template for running cross-scales experiments on ResNet-50.
+#
+# For reference, available ResNet-50 models:
+#  - resnet50.fb_swsl_ig1b_ft_in1k:    81.1% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
+#  - resnet50.tv2_in1k:                80.8% (Updated Torchvision recipe)
+#  - resnet50.a1h_in1k:                80.7% (Based on A1 but with stronger dropout, stochastic depth, and RandAugment)
+#  - resnet50.a1_in1k:                 80.4% (ResNet Strikes Back A1 recipe; 600 epochs)
+#  - resnet50.d_in1k:                  79.9% (Recipe D from Appendix of ResNet Strikes Back)
+#  - resnet50.a2_in1k:                 79.8% (ResNet Strikes Back A2 recipe; 300 epochs)
+#  - resnet50.c1_in1k:                 79.8% (Recipe C.1 from Appendix of ResNet Strikes Back)
+#  - resnet50.c2_in1k:                 79.9% (Recipe C.2 from Appendix of ResNet Strikes Back)
+#  - resnet50.b1k_in1k:                79.6% (Recipe B from Appendix of ResNet Strikes Back)
+#  - resnet50.b2k_in1k:                79.4% (Recipe B from Appendix of ResNet Strikes Back)
+#  - resnet50.fb_ssl_yfcc100m_ft_in1k: 79.3% (Pretrained on a subset of YFCC100M using SSL)
+#  - resnet50.ram_in1k:                79.0% (SGD+momentum, CosineAnnealing, AugMix + RandAugment recipe)
+#  - resnet50.am_in1k:                 79.0% (SGD+momentum, CosineAnnealing, AugMix Recipe)
+#  - resnet50.ra_in1k:                 78.8% (Equivalent to Recipe B)
+#  - resnet50.bt_in1k:                 78.4% (Bag-of-Tricks recipe)
+#  - resnet50.a3_in1k:                 78.1% (ResNet Strikes Back A3 recipe; 100 epochs)
+#  - resnet50.gluon_in1k:              77.6% (Bag-of-Tricks recipe)
+#  - resnet50.tv_in1k:                 76.2% (Original Torchvision recipe)
+#
+
+stages:
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: x
+      block_output: layer1.0
+      in_format: img  # layer1.0 input is [64, 56, 56].
+      out_format: [img, [256, 56, 56]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer1.1
+      block_output: layer1.2
+      in_format: [img, [256, 56, 56]]
+      out_format: [img, [256, 56, 56]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer2.0
+      block_output: layer2.0
+      in_format: [img, [256, 56, 56]]
+      out_format: [img, [512, 28, 28]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer2.1
+      block_output: layer2.3
+      in_format: [img, [512, 28, 28]]
+      out_format: [img, [512, 28, 28]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer3.0
+      block_output: layer3.0
+      in_format: [img, [512, 28, 28]]
+      out_format: [img, [1024, 14, 14]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer3.1
+      block_output: layer3.5
+      in_format: [img, [1024, 14, 14]]
+      out_format: [img, [1024, 14, 14]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer4.0
+      block_output: layer4.0
+      in_format: [img, [1024, 14, 14]]
+      out_format: [img, [2048, 7, 7]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer4.1
+      block_output: fc
+      in_format: [img, [2048, 7, 7]]
+      out_format: vector
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0

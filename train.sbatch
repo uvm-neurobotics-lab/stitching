@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# To launch, run "sbatch train.sbatch stitch src/stitch_train.py -c tests/stitch-resnet18.yml" or similar.
+# Ensure the job's batch size is configured appropriately for 2 GPU, or you change the number of GPU accordingly.
+
 #SBATCH --job-name=stitch
 #SBATCH --time=10:00:00
 #SBATCH --partition=nvgpu
@@ -29,9 +32,10 @@ conda activate $CONDAENV
 head_node=$(hostname)
 nodes=$SLURM_NTASKS
 nproc=$SLURM_GPUS_ON_NODE
-CMD="../../src/stitch_train.py -j 6 ${*:2}"
+progname=$2
+cmd="$progname -j 6 ${*:3}"
 echo "Launching command with $nodes nodes, $nproc GPUs per node, head node $head_node:"
-echo "    $CMD"
+echo "    $cmd"
 
 srun torchrun \
      --nnodes $nodes \
@@ -39,4 +43,4 @@ srun torchrun \
      --rdzv_id $RANDOM \
      --rdzv_backend c10d \
      --rdzv_endpoint $head_node:29500 \
-     ../../src/stitch_train.py -j 6 "${@:2}"
+     $progname -j 6 "${@:3}"

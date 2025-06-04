@@ -1,5 +1,5 @@
 """
-A script to train an architecture and store the training trajectory in the corresponding cache.
+A script to train an assembled architecture.
 
 To test this script, try:
     WANDB_MODE=disabled python src/stitch_train.py -c tests/stitch-mobilenetv3.yml --st
@@ -59,6 +59,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         default=Path(".").resolve(),
                         help="Location to save the model checkpoints. By default, they will be saved in the current "
                              "directory.")
+    parser.add_argument("--metrics-output", "--metrics-dest", metavar="PATH", type=Path,
+                        help="Location to save a dataframe of recorded metrics. (default: result.pkl in --output dir)")
     parser.add_argument("--start-epoch", metavar="N", default=0, type=int, help="Start epoch.")
     parser.add_argument("--resume-from", "--resume", metavar="FILE", type=argutils.existing_path,
                         help="Path of checkpoint to resume from. Mutually exclusive with --load-from.")
@@ -125,9 +127,9 @@ def prep_config(parser, args):
     # This list governs which _top-level_ args can be overridden from the command line.
     config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
                                                            "eval_checkpoints", "load_from", "resume_from",
-                                                           "start_epoch", "test_only", "save_dir", "id", "project",
-                                                           "entity", "group", "device", "workers", "deterministic",
-                                                           "verbose"])
+                                                           "start_epoch", "test_only", "save_dir", "metrics_output",
+                                                           "id", "project", "entity", "group", "device", "workers",
+                                                           "deterministic", "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
@@ -179,8 +181,22 @@ def setup_and_train(parser, config):
     model.to(device)
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
-    training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
+    raw_metrics = training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
+
+    pe_metrics = training.per_epoch_metrics(raw_metrics)
+    save_results(pe_metrics, config)
     return 0
+
+
+def save_results(per_epoch_metrics, config):
+    # Use the save_dir if metrics_output is not specified. Ultimately fall back to CWD.
+    resfile = config.get("metrics_output", config.get("save_dir", Path(".")))
+    if not str(resfile).endswith(".pkl"):
+        # Assume this is intended as a directory name, even if it doesn't exist.
+        resfile = resfile / "results.pkl"
+    resfile.parent.mkdir(parents=True, exist_ok=True)
+    logging.info(f"Saving results to: {str(resfile)}")
+    per_epoch_metrics.to_pickle(resfile)
 
 
 def main(argv=None):

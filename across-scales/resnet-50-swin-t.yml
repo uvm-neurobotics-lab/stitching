@@ -1,0 +1,151 @@
+#
+# Use the ResNet-50/Swin-T hybrid shown in DeRy, Table 3. It achieves good accuracy on CIFAR-100, shown in the table.
+# But what will it achieve on ImageNet? Will it recover the accuracy of original models?
+#  - resnet50.a1_in1k:                            80.4% (ResNet Strikes Back A1 recipe)
+#  - resnet50.fb_swsl_ig1b_ft_in1k (alternative): 81.1% (SWSL Self-Supervised Pre-Training)
+#  - swin_t:                                      81.5% (Swin-Tiny)
+#  - swin_v2_t (alternative):                     82.1% (SwinV2-Tiny)
+# The paper says, "ResNet50 (Stage 1 & 2), Swin-T (Stage 3 & 4)". For PyTorch's Swin, the naming of the blocks doesn't
+# quite line up with the "stages", but Stage 3 & 4 would correspond to `features.5` and `features.7`.
+#
+
+src_stages:
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: x
+      block_output: layer1.0
+      in_format: img  # layer1.0 input is [64, 56, 56].
+      out_format: [img, [256, 56, 56]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer1.1
+      block_output: layer1.2
+      in_format: [img, [256, 56, 56]]
+      out_format: [img, [256, 56, 56]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer2.0
+      block_output: layer2.0
+      in_format: [img, [256, 56, 56]]
+      out_format: [img, [512, 28, 28]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer2.1
+      block_output: layer2.3
+      in_format: [img, [512, 28, 28]]
+      out_format: [img, [512, 28, 28]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer3.0
+      block_output: layer3.0
+      in_format: [img, [512, 28, 28]]
+      out_format: [img, [1024, 14, 14]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer3.1
+      block_output: layer3.5
+      in_format: [img, [1024, 14, 14]]
+      out_format: [img, [1024, 14, 14]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer4.0
+      block_output: layer4.0
+      in_format: [img, [1024, 14, 14]]
+      out_format: [img, [2048, 7, 7]]
+  - Subnet:
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer4.1
+      block_output: fc
+      in_format: [img, [2048, 7, 7]]
+      out_format: vector
+
+dest_stages:
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: x
+      block_output: features.0
+      in_format: img
+      out_format: [bhwc, [96, 56, 56]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.1
+      block_output: features.1
+      in_format: [bhwc, [96, 56, 56]]
+      out_format: [bhwc, [96, 56, 56]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.2
+      block_output: features.2
+      in_format: [bhwc, [96, 56, 56]]
+      out_format: [bhwc, [192, 28, 28]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.3
+      block_output: features.3
+      in_format: [bhwc, [192, 28, 28]]
+      out_format: [bhwc, [192, 28, 28]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.4
+      block_output: features.4
+      in_format: [bhwc, [192, 28, 28]]
+      out_format: [bhwc, [384, 14, 14]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.5
+      block_output: features.5
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [384, 14, 14]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.6
+      block_output: features.6
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [768, 7, 7]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.7
+      block_output: head
+      in_format: [bhwc, [768, 7, 7]]
+      out_format: vector
+
+gaps: !inc across-scales/4-stage-gaps.yml
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0

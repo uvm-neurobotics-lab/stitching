@@ -1,0 +1,9 @@
+# Experimental variants for 4-stage architectures.
+  - blocks_to_drop: [1, 1]
+    num_downsamples: 0
+  - blocks_to_drop: [1, 2]
+    num_downsamples: 1
+  - blocks_to_drop: [1, 4]
+    num_downsamples: 2
+  - blocks_to_drop: [1, 6]
+    num_downsamples: 3

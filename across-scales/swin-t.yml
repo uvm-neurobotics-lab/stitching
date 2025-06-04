@@ -1,0 +1,91 @@
+#
+# Template for running cross-scales experiments on Swin-Tiny.
+#
+# For reference, available Swin-Tiny models from PyTorch:
+#  - swin_t:     81.5% (Swin-Tiny)
+#  - swin_v2_t:  82.1% (SwinV2-Tiny)
+# From timm, we have:
+#  - swin_tiny_patch4_window7_224.ms_in1k:           81.4% (Direct training on INet1k)
+#  - swin_tiny_patch4_window7_224.ms_in22k_ft_in1k:  81.0% (Pre-train on INet22k)
+#
+
+stages:
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: x
+      block_output: features.0
+      in_format: img
+      out_format: [bhwc, [96, 56, 56]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.1
+      block_output: features.1
+      in_format: [bhwc, [96, 56, 56]]
+      out_format: [bhwc, [96, 56, 56]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.2
+      block_output: features.2
+      in_format: [bhwc, [96, 56, 56]]
+      out_format: [bhwc, [192, 28, 28]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.3
+      block_output: features.3
+      in_format: [bhwc, [192, 28, 28]]
+      out_format: [bhwc, [192, 28, 28]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.4
+      block_output: features.4
+      in_format: [bhwc, [192, 28, 28]]
+      out_format: [bhwc, [384, 14, 14]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.5
+      block_output: features.5
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [384, 14, 14]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.6
+      block_output: features.6
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [768, 7, 7]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.7
+      block_output: head
+      in_format: [bhwc, [768, 7, 7]]
+      out_format: vector
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
