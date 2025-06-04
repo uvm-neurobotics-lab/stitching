@@ -43,7 +43,7 @@ train_config:
   # Optimization
   # This plus default data augmentation should approximate the recipe found in Torchvision:
   #     https://github.com/pytorch/vision/tree/main/references/classification#resnet
-  batch_size: 256
+  batch_size: 32
   optimizer: SGD
   optimizer_args:
     lr: 0.1
