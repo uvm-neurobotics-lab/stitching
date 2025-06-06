@@ -138,9 +138,9 @@ def per_epoch_metrics(metrics_map, **metadata):
 
 def filesafe_str(obj):
     if isinstance(obj, Mapping):
-        return "-" + (",".join([filesafe_str(k) + ";" + filesafe_str(obj[k]) for k in obj])) + "-"
-    elif isinstance(obj, (Sequence, Set)):
-        return "-" + (",".join([filesafe_str(e) for e in obj])) + "-"
+        return ",".join([filesafe_str(k) + ";" + filesafe_str(obj[k]) for k in obj])
+    elif isinstance(obj, (Sequence, Set)) and not isinstance(obj, str):
+        return ",".join([filesafe_str(e) for e in obj])
     else:
         return str(obj)
 

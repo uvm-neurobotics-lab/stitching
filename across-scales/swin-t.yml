@@ -67,6 +67,8 @@ stages:
       in_format: [bhwc, [768, 7, 7]]
       out_format: vector
 
+gaps: !include 4-stage-gaps.yml
+
 
 train_config:
   # Dataset

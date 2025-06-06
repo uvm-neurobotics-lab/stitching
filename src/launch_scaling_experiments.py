@@ -2,52 +2,172 @@
 A script to assemble a number of experiment configs and launch Slurm jobs to execute them.
 
 To test this script, try:
-    python src/stitch_train.py -c across-scales/resnet-50.yml -n
+    python src/stitch_train.py -c across-scales/resnet-50.yml -n -vv
 """
-
+import functools
 import logging
 import os
 import sys
 from pathlib import Path
 
 import yaml
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.distributed import DistributedSampler
 
 import utils.argparsing as argutils
 import utils.datasets as datasets
-import utils.distributed as dist
 import utils.training as training
-from assembly import Assembly, validate_part, validate_part_list
-from utils import as_strings, ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
+from assembly import validate_part_list
+from utils import as_strings, ensure_config_param, make_pretty, _and, of_type
 from utils.slurm import call_sbatch
 
-
-ADAPTERS = [
-    # TODO
-]
+METRIC_FILENAME = "result.pkl"
 
 # Get the resolved path of this script, before we switch directories.
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
 
-def build_command(cluster, conda_env, config_path, verbosity, launcher_args):
-    # Find the script to run, relative to this file.
-    target_script = SCRIPT_DIR / "stitch_train.py"
-    assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
-    sbatch_script = SCRIPT_DIR.parent / ("hgtrain.sbatch" if cluster == "hgnodes" else "train.sbatch")
-    assert sbatch_script.is_file(), f"Script file ({sbatch_script}) not found or is not a file."
+def set_frozen(parts, frozen):
+    if isinstance(parts, (list, tuple)):
+        # List of parts.
+        for p in parts:
+            set_frozen(p, frozen)
+    else:
+        # Single part: a dict containing a single value.
+        next(iter(parts.values()))["frozen"] = frozen
 
-    train_cmd = [target_script, "--config", config_path]
-    if verbosity:
-        train_cmd.append("-" + ("v" * verbosity))
-    # TODO: Add metric output file to command.
 
-    # Add launcher wrapper.
-    launch_cmd = ["sbatch"] + launcher_args + [sbatch_script, conda_env] + train_cmd
-    launch_cmd = as_strings(launch_cmd)
+def get_tensor_shape_sequence(src_format, dest_format, num_downsamples):
+    # Get the appropriate sequence of tensor shapes for N downsampling steps.
+    in_channels = src_format[1][0]
+    out_channels = dest_format[1][0]
+    in_size = src_format[1][1]
+    out_size = dest_format[1][1]
+    if out_channels >= in_channels:
+        channels = [min(in_channels * (2 ** i), out_channels) for i in range(num_downsamples + 1)]
+    else:
+        channels = [max(in_channels / (2 ** i), out_channels) for i in range(num_downsamples + 1)]
+    sizes = [max(in_size / (2 ** i), out_size) for i in range(num_downsamples + 1)]
+    return channels, sizes
 
-    return launch_cmd
+
+def stitch_with(adapter_fn):
+    return functools.partial(stitch, adapter_fn=adapter_fn)
+
+
+def stitch(src_blocks, dest_blocks, adapter_fn, num_downsamples):
+    src_format = next(iter(src_blocks[-1].values()))["out_format"]
+    dest_format = next(iter(dest_blocks[0].values()))["in_format"]
+    # `adapter_fn` provides a part list, could be multiple part configs.
+    adapter_cfg = adapter_fn(src_format, dest_format, num_downsamples)
+    set_frozen(src_blocks, True)
+    set_frozen(adapter_cfg, False)
+    set_frozen(dest_blocks, True)
+    return src_blocks + adapter_cfg + dest_blocks
+
+
+def finetune_stitch(src_blocks, dest_blocks, num_downsamples):
+    """ No adapter, and unfreeze everything! """
+    assembly = src_blocks + dest_blocks
+    set_frozen(assembly, False)
+    return assembly
+
+
+def downsample_then_linear(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
+    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        parts.append({
+            "SimpleAdapter": {
+                conv_or_fc: 1,
+                "kernel_size": 1,
+                "nonlinearity": False,
+                "in_channels": ich,
+                "out_channels": och,
+                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
+            }
+        })
+    return parts
+
+
+def linear_then_downsample(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
+    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        parts.append({
+            "SimpleAdapter": {
+                conv_or_fc: 1,
+                "kernel_size": 1,
+                "nonlinearity": False,
+                "in_channels": ich,
+                "out_channels": och,
+                "in_format": ["img", [ich, isz, isz]],  # Use isz, so we downsample after the adapter.
+            }
+        })
+    return parts
+
+
+def downsample_then_3x3conv(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
+    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        parts.append({
+            "SimpleAdapter": {
+                conv_or_fc: 1,
+                "kernel_size": 3,
+                "in_channels": ich,
+                "out_channels": och,
+                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
+            }
+        })
+    return parts
+
+
+def downsample_then_block(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        parts.append({
+            "ResNetBasicBlock": {
+                "in_channels": ich,
+                "out_channels": och,
+                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
+            }
+        })
+    return parts
+
+
+def block_with_downsample(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        parts.append({
+            "ResNetBasicBlock": {
+                "in_channels": ich,
+                "out_channels": och,
+                "stride": 2
+            }
+        })
+    return parts
+
+
+# TODO: Remove the conv options for a ViT?
+STITCHERS = [
+    ("finetune", finetune_stitch),
+    ("downsample_then_linear", stitch_with(downsample_then_linear)),
+    ("downsample_then_3x3conv", stitch_with(downsample_then_3x3conv)),
+    ("downsample_then_block", stitch_with(downsample_then_block)),
+    ("block_with_downsample", stitch_with(block_with_downsample)),
+]
 
 
 def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
@@ -104,6 +224,23 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     return parser
 
 
+def validate_gap_config(gaps):
+    if not isinstance(gaps, (list, tuple)):
+        raise RuntimeError(f"'gaps' should be a list of gap configs.")
+    for i, gap in enumerate(gaps):
+        if not isinstance(gap, dict) or "blocks_to_drop" not in gap or "num_downsamples" not in gap:
+            raise RuntimeError(f"Gap #{i} invalid: a gap config should be a dict containing 'blocks_to_drop' and"
+                               " 'num_downsamples'.")
+        if (not isinstance(gap["blocks_to_drop"], (list, tuple))
+                or len(gap["blocks_to_drop"]) != 2
+                or not (isinstance(gap["blocks_to_drop"][0], int) and isinstance(gap["blocks_to_drop"][1], int))
+                or gap["blocks_to_drop"][0] > gap["blocks_to_drop"][1]):
+            raise RuntimeError(f"Gap #{i} invalid: 'blocks_to_drop' should be a pair of integers [first, last].")
+        if not isinstance(gap["num_downsamples"], int):
+            raise RuntimeError(f"Gap #{i} invalid: 'num_downsamples' should be an integer.")
+    return True
+
+
 def validate_config(config):
     """
     Prints and validates the given training config. Throws an exception in the case of invalid or missing required
@@ -118,8 +255,19 @@ def validate_config(config):
     logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
 
     # First check values for constructing the model.
-    ensure_config_param(config, "assembly", _and(of_type(list), validate_part_list))
-    ensure_config_param(config, "head", _and(of_type(dict), validate_part), required=False)
+    # We require either one set of stages or two sets of "bottom" and "top" networks.
+    if "stages" in config:
+        if "src_stages" in config or "dest_stages" in config:
+            raise RuntimeError(f"Either supply a single 'stages' variable, or supply 'src_stages' and 'dest_stages'"
+                               " together.")
+        ensure_config_param(config, "stages", _and(of_type(list), validate_part_list))
+    elif not ("src_stages" in config and "dest_stages" in config):
+        raise RuntimeError(f"Either supply a single 'stages' variable, or supply 'src_stages' and 'dest_stages'"
+                           " together.")
+    else:
+        ensure_config_param(config, "src_stages", _and(of_type(list), validate_part_list))
+        ensure_config_param(config, "dest_stages", _and(of_type(list), validate_part_list))
+    ensure_config_param(config, "gaps", validate_gap_config)
 
     # Now check values related to training the model.
     datasets.check_data_config(config)
@@ -130,10 +278,6 @@ def validate_config(config):
 
 def prep_config(parser, args):
     """ Process command line arguments to produce a full training config. May also edit the arguments. """
-    # If we're doing a smoke test, then we need to modify the verbosity before configuring the logger.
-    if args.smoke_test and args.verbose < 2:
-        args.verbose = 2
-
     argutils.configure_logging(args, level=logging.INFO)
 
     # This list governs which _top-level_ args can be overridden from the command line.
@@ -151,6 +295,46 @@ def prep_config(parser, args):
     return validate_config(config)
 
 
+def build_job_config(config, gap, stitch_fn):
+    jobcfg = config.copy()
+    jobcfg.pop("stages", None)
+    jobcfg.pop("src_stages", None)
+    jobcfg.pop("dest_stages", None)
+    jobcfg.pop("gaps", None)
+
+    src_stages = config.get("src_stages", config.get("stages"))
+    dest_stages = config.get("dest_stages", config.get("stages"))
+    # Everything before the first dropped block.
+    src_blocks = src_stages[:gap["blocks_to_drop"][0]]
+    # Everything after the last dropped block.
+    dest_blocks = dest_stages[gap["blocks_to_drop"][1] + 1:]
+    # Pull them together with the specified stitcher.
+    assembly = stitch_fn(src_blocks, dest_blocks, num_downsamples=gap["num_downsamples"])
+    jobcfg["assembly"] = assembly
+
+    jobcfg["metrics_output"] = METRIC_FILENAME
+
+    return make_pretty(jobcfg)
+
+
+def build_command(cluster, conda_env, config_path, verbosity, launcher_args):
+    # Find the script to run, relative to this file.
+    target_script = SCRIPT_DIR / "stitch_train.py"
+    assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
+    sbatch_script = SCRIPT_DIR.parent / ("hgtrain.sbatch" if cluster == "hgnodes" else "train.sbatch")
+    assert sbatch_script.is_file(), f"Script file ({sbatch_script}) not found or is not a file."
+
+    train_cmd = [target_script, "--config", config_path]
+    if verbosity:
+        train_cmd.append("-" + ("v" * verbosity))
+
+    # Add launcher wrapper.
+    launch_cmd = ["sbatch"] + launcher_args + [sbatch_script, conda_env] + train_cmd
+    launch_cmd = as_strings(launch_cmd)
+
+    return launch_cmd
+
+
 def setup_jobs(config, args, launcher_args):
     """ Write configs for each job and launch them. """
     # create folder based on config name.
@@ -160,9 +344,12 @@ def setup_jobs(config, args, launcher_args):
     for gap in config["gaps"]:
         blocks_to_drop = gap["blocks_to_drop"]
         num_downsamples = gap["num_downsamples"]
-        for adapter in ADAPTERS:
+        for adapter_name, adapter in STITCHERS:
+            print(f"\n---- LAUNCHING gap={blocks_to_drop}, {adapter_name} ----\n")
             # Make a folder for the job.
-            jobname = training.filesafe_str(["train", expname, "gap", blocks_to_drop, "adapter", adapter.__name__])
+            jobname = "-".join(["train", expname,
+                                "gap", training.filesafe_str(blocks_to_drop),
+                                "adapter", adapter_name])
             outdir = rootdir / jobname
             if not args.dry_run:
                 outdir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +360,7 @@ def setup_jobs(config, args, launcher_args):
                       f" instead of {os.getcwd()}.")
 
             # Do not overwrite anything if results already exist here.
-            result_path = outdir / "results.pkl"
+            result_path = outdir / METRIC_FILENAME
             if result_path.exists():
                 print(f"Results already exist for {expname}/{jobname}. Skipping.")
                 continue
@@ -181,12 +368,7 @@ def setup_jobs(config, args, launcher_args):
             # Write a config (if doesn't exist).
             cfgfile = outdir / "config.yml"
             if not cfgfile.is_file():
-                jobcfg = config.copy()
-                jobcfg.pop("stages", None)
-                jobcfg.pop("src_stages", None)
-                jobcfg.pop("dest_stages", None)
-                jobcfg.pop("gaps", None)
-                # TODO write assembly parts
+                jobcfg = build_job_config(config, gap, adapter)
                 jobcfg = make_pretty(jobcfg)
                 if not args.dry_run:
                     cfgfile = cfgfile.resolve()
@@ -195,14 +377,14 @@ def setup_jobs(config, args, launcher_args):
                 else:
                     print(f"Would write training config to file: {str(outdir / cfgfile.name)}")
                     if args.launch_verbose:
-                        print(f"\nConfig to be written:\n{jobcfg}\n\n")
+                        print(f"\nConfig to be written:\n{yaml.dump(jobcfg)}\n\n")
 
             # Write the metadata (if doesn't exist).
             metafile = outdir / "metadata.yml"
             if not metafile.is_file():
                 metacfg = {"arch": expname, "first_deleted_block": blocks_to_drop[0],
                            "last_deleted_block": blocks_to_drop[1], "num_downsamples": num_downsamples,
-                           "adapter": adapter.__name__}
+                           "adapter": adapter_name}
                 metacfg = make_pretty(metacfg)
                 if not args.dry_run:
                     metafile = metafile.resolve()

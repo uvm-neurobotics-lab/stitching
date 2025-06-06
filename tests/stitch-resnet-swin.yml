@@ -28,7 +28,7 @@ assembly:
       model_name: swin_t
       block_input: features.5
       block_output: head
-      in_format: [bhwc, [14, 14]]
+      in_format: [bhwc, [384, 14, 14]]
       out_format: vector
       frozen: true
 

@@ -23,7 +23,7 @@ assembly:
       model_name: vit_tiny_patch16_224.augreg_in21k_ft_in1k
       block_input: blocks.6
       block_output: head
-      in_format: [bert, 196]
+      in_format: [bert, [192, 196]]
       out_format: vector
       frozen: true
 

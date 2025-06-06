@@ -105,8 +105,9 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
     Converts the given tensor from current format into desired format.
 
     Format descriptions are a pair of [string, size]. String should be a type available in `TRANSFORM` and describes the
-    format of the input: 2D image, 1D sequence, etc. Size is the size of the image or sequence. All inputs are assumed
-    to represent images. Therefore, we always convert to an image before doing any resizing; resizing behaves as image
+    format of the input: 2D image, 1D sequence, etc. Size is the size of the image or sequence. Sizes are in either
+    [H, W] or [C, H, W] format for images, or [C, L] or [L] format for sequences. All inputs are assumed to represent
+    images. Therefore, we always convert to an image before doing any resizing; resizing behaves as image
     upsampling/downsampling.
 
     Args:
@@ -143,7 +144,15 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
             # If a 1D size is requested, determine the equivalent square image size.
             target_sz = to_square_img_size(target_sz)
         elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 2:
-            target_sz = tuple(target_sz)
+            if target_fmt == "img" or target_fmt == "bhwc":
+                # If format is image-like, then assume this is [H, W].
+                target_sz = tuple(target_sz)
+            else:
+                # If format is sequence-like, then assume this is [C, H*W]. Drop the C and get a 2D size.
+                target_sz = to_square_img_size(target_sz[1])
+        elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 3:
+            # If we have 3 values, they must be in [C, H, W] format. Just take the spatial values.
+            target_sz = tuple(target_sz[1:])
         else:
             raise RuntimeError(f"Target size should be either an int or a pair but got: {target_sz}")
 

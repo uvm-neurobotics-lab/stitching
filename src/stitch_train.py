@@ -190,10 +190,10 @@ def setup_and_train(parser, config):
 
 def save_results(per_epoch_metrics, config):
     # Use the save_dir if metrics_output is not specified. Ultimately fall back to CWD.
-    resfile = config.get("metrics_output", config.get("save_dir", Path(".")))
+    resfile = Path(config.get("metrics_output", config.get("save_dir", ".")))
     if not str(resfile).endswith(".pkl"):
         # Assume this is intended as a directory name, even if it doesn't exist.
-        resfile = resfile / "results.pkl"
+        resfile = resfile / "result.pkl"
     resfile.parent.mkdir(parents=True, exist_ok=True)
     logging.info(f"Saving results to: {str(resfile)}")
     per_epoch_metrics.to_pickle(resfile)

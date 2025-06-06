@@ -56,7 +56,7 @@ class ResNetBasicBlock(nn.Module):
     __constants__ = ['downsample']
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1, base_width=64, dilation=1,
-                 norm_type="bn"):
+                 norm_type="bn", in_format=None):
         super(ResNetBasicBlock, self).__init__()
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
@@ -70,7 +70,9 @@ class ResNetBasicBlock(nn.Module):
                 conv1x1(in_channels, out_channels, stride),
                 norm_layer(out_channels),
             )
-        self.in_fmt = "img"
+        if in_format[0] != "img":
+            raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
+        self.in_fmt = in_format if in_format else "img"
         self.out_fmt = "img"
 
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
@@ -106,7 +108,7 @@ class ResNetBottleneck(nn.Module):
     __constants__ = ['downsample']
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1, base_width=64, dilation=1,
-                 norm_type="bn"):
+                 norm_type="bn", in_format=None):
         super(ResNetBottleneck, self).__init__()
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
@@ -116,7 +118,9 @@ class ResNetBottleneck(nn.Module):
                 conv1x1(in_channels, out_channels, stride),
                 norm_layer(out_channels),
             )
-        self.in_fmt = "img"
+        if in_format[0] != "img":
+            raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
+        self.in_fmt = in_format if in_format else "img"
         self.out_fmt = "img"
 
         width = int((out_channels / self.expansion) * (base_width / 64.)) * groups
@@ -163,7 +167,7 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
       - For ViT-Large: num_heads=16, embed_dim=1024
     """
     def __init__(self, num_heads: int = 6, embed_dim: int = 384, mlp_ratio: float = 4., dropout: float = 0.,
-                 attention_dropout: float = 0.):
+                 attention_dropout: float = 0., in_format=None):
         super().__init__(
             num_heads=num_heads,
             hidden_dim=embed_dim,
@@ -171,7 +175,9 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
             dropout=dropout,
             attention_dropout=attention_dropout,
         )
-        self.in_fmt = "bert"
+        if in_format[0] != "bert":
+            raise RuntimeError(f"VisionTransformer format must be 'bert', but instead got '{in_format[0]}'.")
+        self.in_fmt = in_format if in_format else "bert"
         self.out_fmt = "bert"
 
 
@@ -180,7 +186,7 @@ class SimpleAdapter(nn.Module):
     An adapter which can form either a simple layer or slightly more complex blocks.
     """
     def __init__(self, in_channels, out_channels, hid_channels=None, num_fc=0, num_conv=0, kernel_size=3, stride=1,
-                 padding=1, leading_norm=True, nonlinearity=True, fc_format=None):
+                 padding=1, leading_norm=True, nonlinearity=True, fc_format=None, in_format=None):
         super().__init__()
         if num_fc < 0 or num_conv < 0:
             raise ValueError("num_fc and num_conv must be non-negative.")
@@ -192,8 +198,8 @@ class SimpleAdapter(nn.Module):
 
         layers = []
         if self.is_linear:
-            self.in_fmt = fc_format
-            self.out_fmt = fc_format
+            self.in_fmt = fc_format if fc_format else in_format
+            self.out_fmt = fc_format if fc_format else in_format
             if leading_norm:
                 layers.append(nn.LayerNorm(in_channels))
             ichans = in_channels
@@ -210,7 +216,9 @@ class SimpleAdapter(nn.Module):
                     ichans = ochans
 
         else:
-            self.in_fmt = "img"
+            if in_format[0] != "img":
+                raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
+            self.in_fmt = in_format if in_format else "img"
             self.out_fmt = "img"
             if leading_norm:
                 layers.append(nn.BatchNorm2d(in_channels))
