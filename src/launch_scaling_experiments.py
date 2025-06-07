@@ -295,8 +295,9 @@ def prep_config(parser, args):
     return validate_config(config)
 
 
-def build_job_config(config, gap, stitch_fn):
+def build_job_config(config, save_dir, gap, stitch_fn):
     jobcfg = config.copy()
+    jobcfg.pop("config", None)
     jobcfg.pop("stages", None)
     jobcfg.pop("src_stages", None)
     jobcfg.pop("dest_stages", None)
@@ -312,6 +313,7 @@ def build_job_config(config, gap, stitch_fn):
     assembly = stitch_fn(src_blocks, dest_blocks, num_downsamples=gap["num_downsamples"])
     jobcfg["assembly"] = assembly
 
+    jobcfg["save_dir"] = save_dir
     jobcfg["metrics_output"] = METRIC_FILENAME
 
     return make_pretty(jobcfg)
@@ -366,9 +368,10 @@ def setup_jobs(config, args, launcher_args):
                 continue
 
             # Write a config (if doesn't exist).
+            # TODO: Force writing with a --force param.
             cfgfile = outdir / "config.yml"
             if not cfgfile.is_file():
-                jobcfg = build_job_config(config, gap, adapter)
+                jobcfg = build_job_config(config, outdir, gap, adapter)
                 jobcfg = make_pretty(jobcfg)
                 if not args.dry_run:
                     cfgfile = cfgfile.resolve()
