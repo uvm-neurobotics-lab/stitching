@@ -146,13 +146,13 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
         elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 2:
             if target_fmt == "img" or target_fmt == "bhwc":
                 # If format is image-like, then assume this is [H, W].
-                target_sz = tuple(target_sz)
+                target_sz = tuple(int(s) for s in target_sz)
             else:
                 # If format is sequence-like, then assume this is [C, H*W]. Drop the C and get a 2D size.
                 target_sz = to_square_img_size(target_sz[1])
         elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 3:
             # If we have 3 values, they must be in [C, H, W] format. Just take the spatial values.
-            target_sz = tuple(target_sz[1:])
+            target_sz = tuple(int(s) for s in target_sz[1:])
         else:
             raise RuntimeError(f"Target size should be either an int or a pair but got: {target_sz}")
 

@@ -166,6 +166,7 @@ def make_datasets(name: str, data_root: Union[str, PathLike], batch_size: int = 
 
 def check_data_config(config: dict):
     ensure_config_param(config, "data_path", existing_path)
+    config["data_path"] = Path(config["data_path"]).resolve()  # ensure the type is Path, not string.
     ensure_config_param(config, ["train_config", "dataset"], of_type(str))
     ensure_config_param(config, ["train_config", "batch_size"], _and(of_type(int), gt_zero), required=False)
     ensure_config_param(config, ["train_config", "max_batches"], _and(of_type(int), gt_zero), required=False)

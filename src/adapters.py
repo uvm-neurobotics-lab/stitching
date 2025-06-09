@@ -70,7 +70,7 @@ class ResNetBasicBlock(nn.Module):
                 conv1x1(in_channels, out_channels, stride),
                 norm_layer(out_channels),
             )
-        if in_format[0] != "img":
+        if in_format and in_format[0] != "img":
             raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
         self.in_fmt = in_format if in_format else "img"
         self.out_fmt = "img"
@@ -118,7 +118,7 @@ class ResNetBottleneck(nn.Module):
                 conv1x1(in_channels, out_channels, stride),
                 norm_layer(out_channels),
             )
-        if in_format[0] != "img":
+        if in_format and in_format[0] != "img":
             raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
         self.in_fmt = in_format if in_format else "img"
         self.out_fmt = "img"
@@ -175,7 +175,7 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
             dropout=dropout,
             attention_dropout=attention_dropout,
         )
-        if in_format[0] != "bert":
+        if in_format and in_format[0] != "bert":
             raise RuntimeError(f"VisionTransformer format must be 'bert', but instead got '{in_format[0]}'.")
         self.in_fmt = in_format if in_format else "bert"
         self.out_fmt = "bert"
@@ -216,7 +216,7 @@ class SimpleAdapter(nn.Module):
                     ichans = ochans
 
         else:
-            if in_format[0] != "img":
+            if in_format and in_format[0] != "img":
                 raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
             self.in_fmt = in_format if in_format else "img"
             self.out_fmt = "img"
