@@ -19,10 +19,16 @@ from assembly import validate_part_list
 from utils import as_strings, ensure_config_param, make_pretty, _and, of_type
 from utils.slurm import call_sbatch
 
-METRIC_FILENAME = "result.pkl"
-
 # Get the resolved path of this script, before we switch directories.
 SCRIPT_DIR = Path(__file__).parent.resolve()
+
+
+def result_filename(config):
+    fname = "result"
+    seed = config.get("train_config", {}).get("seed")
+    if seed:
+        fname += f"-{seed}"
+    return fname + ".pkl"
 
 
 def set_frozen(parts, frozen):
@@ -215,6 +221,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="The Slurm partition on which to launch eval jobs.")
     parser.add_argument("--conda-env", "--conda", "--env", metavar="NAME", default="stitch",
                         help="The Conda environment to activate before running the job.")
+    parser.add_argument("-f", "--force", action="store_true",
+                        help="Run even if results already exist. Overwrite config files if they exist.")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="Do not actually launch jobs, but only print out the equivalent commands that would be"
                              " launched.")
@@ -318,7 +326,7 @@ def build_job_config(config, save_dir, gap, stitch_fn):
     jobcfg["assembly"] = assembly
 
     jobcfg["save_dir"] = save_dir
-    jobcfg["metrics_output"] = METRIC_FILENAME
+    jobcfg["metrics_output"] = result_filename(config)
 
     return make_pretty(jobcfg)
 
@@ -366,16 +374,14 @@ def setup_jobs(config, args, launcher_args):
                       f" instead of {os.getcwd()}.")
 
             # Do not overwrite anything if results already exist here.
-            # TODO: Change to incorporate random seed and allow different random seeds to store separate results.
-            result_path = outdir / METRIC_FILENAME
-            if result_path.exists():
+            result_path = outdir / result_filename(config)
+            if result_path.exists() and not args.force:
                 print(f"Results already exist for {expname}/{jobname}. Skipping.")
                 continue
 
             # Write a config (if doesn't exist).
-            # TODO: Force writing with a --force param.
             cfgfile = outdir / "config.yml"
-            if not cfgfile.is_file():
+            if args.force or not cfgfile.is_file():
                 jobcfg = build_job_config(config, outdir, gap, adapter)
                 jobcfg = make_pretty(jobcfg)
                 if not args.dry_run:
@@ -389,7 +395,7 @@ def setup_jobs(config, args, launcher_args):
 
             # Write the metadata (if doesn't exist).
             metafile = outdir / "metadata.yml"
-            if not metafile.is_file():
+            if args.force or not metafile.is_file():
                 metacfg = {"arch": expname, "first_deleted_block": blocks_to_drop[0],
                            "last_deleted_block": blocks_to_drop[1], "num_downsamples": num_downsamples,
                            "adapter": adapter_name}
