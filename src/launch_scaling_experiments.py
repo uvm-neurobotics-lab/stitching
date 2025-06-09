@@ -42,10 +42,13 @@ def get_tensor_shape_sequence(src_format, dest_format, num_downsamples):
     in_size = src_format[1][1]
     out_size = dest_format[1][1]
     if out_channels >= in_channels:
-        channels = [min(in_channels * (2 ** i), out_channels) for i in range(num_downsamples + 1)]
+        channels = [min(in_channels * (2 ** i), out_channels) for i in range(max(num_downsamples + 1, 2))]
     else:
-        channels = [max(in_channels / (2 ** i), out_channels) for i in range(num_downsamples + 1)]
-    sizes = [max(in_size / (2 ** i), out_size) for i in range(num_downsamples + 1)]
+        channels = [max(in_channels // (2 ** i), out_channels) for i in range(max(num_downsamples + 1, 2))]
+    sizes = [max(in_size // (2 ** i), out_size) for i in range(max(num_downsamples + 1, 2))]
+    # Ensure the final size is `dest_format`, in case the `num_downsamples` wasn't enough to get to the right size.
+    channels[-1] = out_channels
+    sizes[-1] = out_size
     return channels, sizes
 
 
@@ -150,11 +153,12 @@ def block_with_downsample(src_format, dest_format, num_downsamples):
 
     parts = []
     for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        stride = isz // osz
         parts.append({
             "ResNetBasicBlock": {
                 "in_channels": ich,
                 "out_channels": och,
-                "stride": 2
+                "stride": stride,
             }
         })
     return parts
@@ -362,6 +366,7 @@ def setup_jobs(config, args, launcher_args):
                       f" instead of {os.getcwd()}.")
 
             # Do not overwrite anything if results already exist here.
+            # TODO: Change to incorporate random seed and allow different random seeds to store separate results.
             result_path = outdir / METRIC_FILENAME
             if result_path.exists():
                 print(f"Results already exist for {expname}/{jobname}. Skipping.")
