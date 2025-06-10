@@ -413,7 +413,7 @@ def setup_jobs(config, args, launcher_args):
             command = build_command(args.cluster, args.conda_env, cfgfile, args.verbose, launcher_args)
 
             # Launch the job.
-            result += call_sbatch(command, args.launch_verbose, args.dry_run)
+            result += call_sbatch(command, args.launch_verbose, args.dry_run, env={"MKL_THREADING_LAYER": "GNU"})
 
     return result
 
