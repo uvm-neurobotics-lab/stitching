@@ -2,12 +2,13 @@
 A script to assemble a number of experiment configs and launch Slurm jobs to execute them.
 
 To test this script, try:
-    python src/stitch_train.py -c across-scales/resnet-50.yml -n -vv
+    python src/launch_scaling_experiments.py -c across-scales/resnet-50.yml --seed 12345 -n -vv
 """
 import functools
 import logging
 import os
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
@@ -308,12 +309,13 @@ def prep_config(parser, args):
 
 
 def build_job_config(config, save_dir, gap, stitch_fn):
-    jobcfg = config.copy()
+    jobcfg = deepcopy(config)
     jobcfg.pop("config", None)
     jobcfg.pop("stages", None)
     jobcfg.pop("src_stages", None)
     jobcfg.pop("dest_stages", None)
     jobcfg.pop("gaps", None)
+    jobcfg["train_config"].pop("seed", None)
 
     src_stages = config.get("src_stages", config.get("stages"))
     dest_stages = config.get("dest_stages", config.get("stages"))
@@ -326,19 +328,19 @@ def build_job_config(config, save_dir, gap, stitch_fn):
     jobcfg["assembly"] = assembly
 
     jobcfg["save_dir"] = save_dir
-    jobcfg["metrics_output"] = result_filename(config)
 
     return make_pretty(jobcfg)
 
 
-def build_command(cluster, conda_env, config_path, verbosity, launcher_args):
+def build_command(cluster, conda_env, config_path, seed, result_file, verbosity, launcher_args):
     # Find the script to run, relative to this file.
     target_script = SCRIPT_DIR / "stitch_train.py"
     assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
     sbatch_script = SCRIPT_DIR.parent / ("hgtrain.sbatch" if cluster == "hgnodes" else "train.sbatch")
-    assert sbatch_script.is_file(), f"Script file ({sbatch_script}) not found or is not a file."
+    assert sbatch_script.is_file(), f"SBATCH file ({sbatch_script}) not found or is not a file."
 
-    train_cmd = [target_script, "--config", config_path]
+    # NOTE: We allow launching multiple different seeds from the same config, so supply these on the command line.
+    train_cmd = [target_script, "--config", config_path, "--seed", seed, "--metrics-output", result_file]
     if verbosity:
         train_cmd.append("-" + ("v" * verbosity))
 
@@ -374,7 +376,8 @@ def setup_jobs(config, args, launcher_args):
                       f" instead of {os.getcwd()}.")
 
             # Do not overwrite anything if results already exist here.
-            result_path = outdir / result_filename(config)
+            res_fname = result_filename(config)
+            result_path = outdir / res_fname
             if result_path.exists() and not args.force:
                 print(f"Results already exist for {expname}/{jobname}. Skipping.")
                 continue
@@ -410,7 +413,8 @@ def setup_jobs(config, args, launcher_args):
                         print(f"\nMetadata to be written:\n{metacfg}\n\n")
 
             # Get the launch command.
-            command = build_command(args.cluster, args.conda_env, cfgfile, args.verbose, launcher_args)
+            command = build_command(args.cluster, args.conda_env, cfgfile, config["train_config"].get("seed"),
+                                    res_fname, args.verbose, launcher_args)
 
             # Launch the job.
             result += call_sbatch(command, args.launch_verbose, args.dry_run, env={"MKL_THREADING_LAYER": "GNU"})
