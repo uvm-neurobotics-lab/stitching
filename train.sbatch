@@ -35,6 +35,7 @@ while :; do
   ! lsof -iTCP:$PORT -sTCP:LISTEN -t >/dev/null && break
 done
 endpoint=$(hostname):$(PORT)
+rdzv_id=$RANDOM
 nodes=$SLURM_NTASKS
 nproc=$SLURM_GPUS_ON_NODE
 ncpu=$SLURM_CPUS_PER_TASK
@@ -45,13 +46,13 @@ if [ $nworkers -lt 5 ]; then
 fi
 progname=$2
 cmd="$progname -j $nworkers ${*:3}"
-echo "Launching command with ($nodes nodes, $nproc GPUs, $ncpu CPUs) @ endpoint $endpoint:"
+echo "Launching command with ($nodes nodes, $nproc GPUs, $ncpu CPUs) @ endpoint $endpoint, ID $rdzv_id:"
 echo "    $cmd"
 
 srun torchrun \
      --nnodes $nodes \
      --nproc-per-node $nproc \
-     --rdzv_id $RANDOM \
+     --rdzv_id $rdzv_id \
      --rdzv_backend c10d \
      --rdzv_endpoint $endpoint \
      $progname -j $nworkers "${@:3}"
