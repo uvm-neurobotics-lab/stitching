@@ -92,6 +92,16 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     return parser
 
 
+def get_result_file(config):
+    # Use the save_dir if metrics_output is not specified. Ultimately fall back to CWD.
+    resfile = Path(config.get("metrics_output", config.get("save_dir", ".")))
+    if not str(resfile).endswith(".pkl"):
+        # Assume this is intended as a directory name, even if it doesn't exist.
+        resfile = resfile / "result.pkl"
+    resfile = resfile.resolve()
+    return resfile
+
+
 def validate_config(config):
     """
     Prints and validates the given training config. Throws an exception in the case of invalid or missing required
@@ -146,7 +156,13 @@ def prep_config(parser, args):
         config["train_config"]["max_batches"] = 3 * int(os.environ.get("WORLD_SIZE", 1))
         config["train_config"]["epochs"] = 1
 
-    return validate_config(config)
+    config = validate_config(config)
+
+    resfile = get_result_file(config)
+    if resfile.exists():
+        logging.warning(f"WARNING: Will overwrite existing result file: {resfile}")
+
+    return config
 
 
 def setup_and_train(parser, config):
@@ -189,11 +205,7 @@ def setup_and_train(parser, config):
 
 
 def save_results(per_epoch_metrics, config):
-    # Use the save_dir if metrics_output is not specified. Ultimately fall back to CWD.
-    resfile = Path(config.get("metrics_output", config.get("save_dir", ".")))
-    if not str(resfile).endswith(".pkl"):
-        # Assume this is intended as a directory name, even if it doesn't exist.
-        resfile = resfile / "result.pkl"
+    resfile = get_result_file(config)
     resfile.parent.mkdir(parents=True, exist_ok=True)
     logging.info(f"Saving results to: {str(resfile)}")
     per_epoch_metrics.to_pickle(resfile)
