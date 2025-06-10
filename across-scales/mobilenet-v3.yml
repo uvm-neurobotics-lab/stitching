@@ -1,0 +1,92 @@
+#
+# Template for running cross-scales experiments on MobileNetV3-Large.
+#
+# For reference, available MobileNetV3-Large models:
+#  - mobilenetv3_large_100.miil_in21k_ft_in1k:  77.9% (Pretrained on IN-21k, then fine-tuned on IN-1k)
+#  - mobilenetv3_large_100.ra_in1k:             75.8% (RandAugment recipe)
+#
+
+# Note: MobileNet has more stages than typical 4-stage ImageNet models like ResNet. Stage 1 downscales 112 --> 56.
+# After that, we have a similar progression as ResNet, so we will mark those as the 4 stages.
+stages:
+  - Subnet:
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: x
+      block_output: blocks.1.0
+      in_format: img  # blocks.1.0 input is [16, 112, 112].
+      out_format: [img, [24, 56, 56]]
+  - Subnet:
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.1.1
+      block_output: blocks.1.1
+      in_format: [img, [24, 56, 56]]
+      out_format: [img, [24, 56, 56]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.2.0
+      block_output: blocks.2.0
+      in_format: [img, [24, 56, 56]]
+      out_format: [img, [40, 28, 28]]
+  - Subnet:
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.2.1
+      block_output: blocks.2.2
+      in_format: [img, [40, 28, 28]]
+      out_format: [img, [40, 28, 28]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.3.0
+      block_output: blocks.3.0
+      in_format: [img, [40, 28, 28]]
+      out_format: [img, [80, 14, 14]]
+  - Subnet:
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.3.1
+      block_output: blocks.5.0
+      in_format: [img, [80, 14, 14]]
+      out_format: [img, [112, 14, 14]]
+  - Subnet:  # Downsample block
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.5.0
+      block_output: blocks.5.0
+      in_format: [img, [112, 14, 14]]
+      out_format: [img, [160, 7, 7]]
+  - Subnet:
+      backend: timm
+      model_name: mobilenetv3_large_100.ra_in1k
+      block_input: blocks.5.1
+      block_output: classifier
+      in_format: [img, [160, 7, 7]]
+      out_format: vector
+
+gaps: !include 4-stage-gaps.yml
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
