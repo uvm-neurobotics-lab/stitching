@@ -34,7 +34,7 @@ while :; do
   PORT=$((29500 + RANDOM % 1000))
   ! lsof -iTCP:$PORT -sTCP:LISTEN -t >/dev/null && break
 done
-endpoint=$(hostname):$(PORT)
+endpoint=$(hostname):$PORT
 rdzv_id=$RANDOM
 nodes=$SLURM_NTASKS
 nproc=$SLURM_GPUS_ON_NODE
