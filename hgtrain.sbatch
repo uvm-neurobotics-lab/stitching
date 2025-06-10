@@ -29,12 +29,23 @@ CONDAENV=$1
 echo "Activate $CONDAENV"
 conda activate $CONDAENV
 
-head_node=$(hostname)
+# Find a free port in [29500, 30500).
+while :; do
+  PORT=$((29500 + RANDOM % 1000))
+  ! lsof -iTCP:$PORT -sTCP:LISTEN -t >/dev/null && break
+done
+endpoint=$(hostname):$(PORT)
 nodes=$SLURM_NTASKS
 nproc=$SLURM_GPUS_ON_NODE
+ncpu=$SLURM_CPUS_PER_TASK
+nworkers=$((ncpu / nproc))
+if [ $nworkers -lt 5 ]; then
+    # If number of CPU is low, add a couple extra workers to ensure good parallelism.
+    nworkers=$((nworkers + 2))
+fi
 progname=$2
-cmd="$progname -j 12 ${*:3}"
-echo "Launching command with $nodes nodes, $nproc GPUs per node, head node $head_node:"
+cmd="$progname -j $nworkers ${*:3}"
+echo "Launching command with ($nodes nodes, $nproc GPUs, $ncpu CPUs) @ endpoint $endpoint:"
 echo "    $cmd"
 
 srun torchrun \
@@ -42,5 +53,5 @@ srun torchrun \
      --nproc-per-node $nproc \
      --rdzv_id $RANDOM \
      --rdzv_backend c10d \
-     --rdzv_endpoint $head_node:29500 \
-     $progname -j 12 "${@:3}"
+     --rdzv_endpoint $endpoint \
+     $progname -j $nworkers "${@:3}"
