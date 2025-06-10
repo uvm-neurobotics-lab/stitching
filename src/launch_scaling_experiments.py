@@ -76,6 +76,12 @@ def stitch(src_blocks, dest_blocks, adapter_fn, num_downsamples):
 
 def finetune_stitch(src_blocks, dest_blocks, num_downsamples):
     """ No adapter, and unfreeze everything! """
+    src_format = next(iter(src_blocks[-1].values()))["out_format"]
+    dest_format = next(iter(dest_blocks[0].values()))["in_format"]
+    # If tensor formats don't match, then we can't finetune without any adapter.
+    # NOTE: This check requires us to have matching sequence types; we should not try to compare a list and a tuple.
+    if src_format != dest_format:
+        return None
     assembly = src_blocks + dest_blocks
     set_frozen(assembly, False)
     return assembly
@@ -308,7 +314,18 @@ def prep_config(parser, args):
     return validate_config(config)
 
 
-def build_job_config(config, save_dir, gap, stitch_fn):
+def build_assembly(config, gap, stitch_fn):
+    src_stages = config.get("src_stages", config.get("stages"))
+    dest_stages = config.get("dest_stages", config.get("stages"))
+    # Everything before the first dropped block.
+    src_blocks = src_stages[:gap["blocks_to_drop"][0]]
+    # Everything after the last dropped block.
+    dest_blocks = dest_stages[gap["blocks_to_drop"][1] + 1:]
+    # Pull them together with the specified stitcher.
+    return stitch_fn(src_blocks, dest_blocks, num_downsamples=gap["num_downsamples"])
+
+
+def build_job_config(config, save_dir, assembly):
     jobcfg = deepcopy(config)
     jobcfg.pop("config", None)
     jobcfg.pop("stages", None)
@@ -317,16 +334,7 @@ def build_job_config(config, save_dir, gap, stitch_fn):
     jobcfg.pop("gaps", None)
     jobcfg["train_config"].pop("seed", None)
 
-    src_stages = config.get("src_stages", config.get("stages"))
-    dest_stages = config.get("dest_stages", config.get("stages"))
-    # Everything before the first dropped block.
-    src_blocks = src_stages[:gap["blocks_to_drop"][0]]
-    # Everything after the last dropped block.
-    dest_blocks = dest_stages[gap["blocks_to_drop"][1] + 1:]
-    # Pull them together with the specified stitcher.
-    assembly = stitch_fn(src_blocks, dest_blocks, num_downsamples=gap["num_downsamples"])
     jobcfg["assembly"] = assembly
-
     jobcfg["save_dir"] = save_dir
 
     return make_pretty(jobcfg)
@@ -379,14 +387,19 @@ def setup_jobs(config, args, launcher_args):
             res_fname = result_filename(config)
             result_path = outdir / res_fname
             if result_path.exists() and not args.force:
-                print(f"Results already exist for {expname}/{jobname}. Skipping.")
+                print(f"Results already exist for {expname}/{jobname}/{res_fname}. Skipping.")
+                continue
+
+            # Generate the assembly for training. Skip if not applicable.
+            assembly = build_assembly(config, gap, adapter)
+            if not assembly:
+                print(f"Adapter {adapter_name} is not applicable to this gap. Skipping.")
                 continue
 
             # Write a config (if doesn't exist).
             cfgfile = outdir / "config.yml"
             if args.force or not cfgfile.is_file():
-                jobcfg = build_job_config(config, outdir, gap, adapter)
-                jobcfg = make_pretty(jobcfg)
+                jobcfg = build_job_config(config, outdir, assembly)
                 if not args.dry_run:
                     cfgfile = cfgfile.resolve()
                     with open(cfgfile, "w") as f:
