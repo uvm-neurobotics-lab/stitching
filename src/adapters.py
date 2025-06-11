@@ -198,6 +198,8 @@ class SimpleAdapter(nn.Module):
 
         layers = []
         if self.is_linear:
+            # TODO: If stride is given, should we do anything with it? Maybe concat each group before doing linear?
+            #       Or linearly combine each group, then do the full linear on the new size?
             self.in_fmt = fc_format if fc_format else in_format
             self.out_fmt = fc_format if fc_format else in_format
             if leading_norm:

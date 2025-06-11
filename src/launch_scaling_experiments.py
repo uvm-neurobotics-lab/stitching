@@ -59,13 +59,28 @@ def get_tensor_shape_sequence(src_format, dest_format, num_downsamples):
     return channels, sizes
 
 
-def stitch_with(adapter_fn):
-    return functools.partial(stitch, adapter_fn=adapter_fn)
-
-
 def stitch(src_blocks, dest_blocks, adapter_fn, num_downsamples):
     src_format = next(iter(src_blocks[-1].values()))["out_format"]
     dest_format = next(iter(dest_blocks[0].values()))["in_format"]
+    # `adapter_fn` provides a part list, could be multiple part configs.
+    adapter_cfg = adapter_fn(src_format, dest_format, num_downsamples)
+    set_frozen(src_blocks, True)
+    set_frozen(adapter_cfg, False)
+    set_frozen(dest_blocks, True)
+    return src_blocks + adapter_cfg + dest_blocks
+
+
+def stitch_no_downsample(src_blocks, dest_blocks, adapter_fn, num_downsamples):
+    # Modify block sizes so that no downsampling is performed.
+    src_format = next(iter(src_blocks[-1].values()))["out_format"]
+    dest_format = next(iter(dest_blocks[0].values()))["in_format"]
+    # Change dest spatial size to keep the same as src size.
+    dest_format[1][1:] = src_format[1][1:]
+    # Remove all subsequent size indicators so the Assembly doesn't do any resizing.
+    for b in dest_blocks:
+        bargs = next(iter(b.values()))
+        bargs["in_format"] = bargs["in_format"][0]
+        bargs["out_format"] = bargs["out_format"][0]  # Just keep the format indicator ("img", "token", etc.).
     # `adapter_fn` provides a part list, could be multiple part configs.
     adapter_cfg = adapter_fn(src_format, dest_format, num_downsamples)
     set_frozen(src_blocks, True)
@@ -87,7 +102,7 @@ def finetune_stitch(src_blocks, dest_blocks, num_downsamples):
     return assembly
 
 
-def downsample_then_linear(src_format, dest_format, num_downsamples):
+def linear(src_format, dest_format, num_downsamples):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
     # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
     conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
@@ -107,7 +122,7 @@ def downsample_then_linear(src_format, dest_format, num_downsamples):
     return parts
 
 
-def linear_then_downsample(src_format, dest_format, num_downsamples):
+def linear_post_downsample(src_format, dest_format, num_downsamples):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
     # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
     conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
@@ -127,7 +142,7 @@ def linear_then_downsample(src_format, dest_format, num_downsamples):
     return parts
 
 
-def downsample_then_3x3conv(src_format, dest_format, num_downsamples):
+def conv3x3(src_format, dest_format, num_downsamples):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
     # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
     conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
@@ -146,7 +161,7 @@ def downsample_then_3x3conv(src_format, dest_format, num_downsamples):
     return parts
 
 
-def downsample_then_block(src_format, dest_format, num_downsamples):
+def block(src_format, dest_format, num_downsamples):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
 
     parts = []
@@ -156,6 +171,26 @@ def downsample_then_block(src_format, dest_format, num_downsamples):
                 "in_channels": ich,
                 "out_channels": och,
                 "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
+            }
+        })
+    return parts
+
+
+def conv3x3_with_downsample(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
+    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        stride = isz // osz
+        parts.append({
+            "SimpleAdapter": {
+                conv_or_fc: 1,
+                "kernel_size": 3,
+                "stride": stride,
+                "in_channels": ich,
+                "out_channels": och,
             }
         })
     return parts
@@ -180,10 +215,13 @@ def block_with_downsample(src_format, dest_format, num_downsamples):
 # TODO: Remove the conv options for a ViT?
 STITCHERS = [
     ("finetune", finetune_stitch),
-    ("downsample_then_linear", stitch_with(downsample_then_linear)),
-    ("downsample_then_3x3conv", stitch_with(downsample_then_3x3conv)),
-    ("downsample_then_block", stitch_with(downsample_then_block)),
-    ("block_with_downsample", stitch_with(block_with_downsample)),
+    ("block_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=block)),
+    ("linear_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=linear)),
+    ("downsample_then_linear", functools.partial(stitch, adapter_fn=linear)),
+    ("downsample_then_3x3conv", functools.partial(stitch, adapter_fn=conv3x3)),
+    ("downsample_then_block", functools.partial(stitch, adapter_fn=block)),
+    ("conv3x3_with_downsample", functools.partial(stitch, adapter_fn=conv3x3_with_downsample)),
+    ("block_with_downsample", functools.partial(stitch, adapter_fn=block_with_downsample)),
 ]
 
 
@@ -315,8 +353,8 @@ def prep_config(parser, args):
 
 
 def build_assembly(config, gap, stitch_fn):
-    src_stages = config.get("src_stages", config.get("stages"))
-    dest_stages = config.get("dest_stages", config.get("stages"))
+    src_stages = deepcopy(config.get("src_stages", config.get("stages")))
+    dest_stages = deepcopy(config.get("dest_stages", config.get("stages")))
     # Everything before the first dropped block.
     src_blocks = src_stages[:gap["blocks_to_drop"][0]]
     # Everything after the last dropped block.
