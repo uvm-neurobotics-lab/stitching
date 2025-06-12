@@ -161,19 +161,23 @@ def conv3x3(src_format, dest_format, num_downsamples):
     return parts
 
 
-def block(src_format, dest_format, num_downsamples):
+def block(src_format, dest_format, num_downsamples, kind="ResNetBasicBlock"):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
 
     parts = []
     for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
         parts.append({
-            "ResNetBasicBlock": {
+            kind: {
                 "in_channels": ich,
                 "out_channels": och,
                 "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
             }
         })
     return parts
+
+
+def bottleneck(src_format, dest_format, num_downsamples):
+    return block(src_format, dest_format, num_downsamples, "ResNetBottleneck")
 
 
 def conv3x3_with_downsample(src_format, dest_format, num_downsamples):
@@ -196,20 +200,24 @@ def conv3x3_with_downsample(src_format, dest_format, num_downsamples):
     return parts
 
 
-def block_with_downsample(src_format, dest_format, num_downsamples):
+def block_with_downsample(src_format, dest_format, num_downsamples, kind="ResNetBasicBlock"):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
 
     parts = []
     for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
         stride = isz // osz
         parts.append({
-            "ResNetBasicBlock": {
+            kind: {
                 "in_channels": ich,
                 "out_channels": och,
                 "stride": stride,
             }
         })
     return parts
+
+
+def bottleneck_with_downsample(src_format, dest_format, num_downsamples):
+    return block_with_downsample(src_format, dest_format, num_downsamples, "ResNetBottleneck")
 
 
 # TODO: Remove the conv options for a ViT?
@@ -220,8 +228,10 @@ STITCHERS = [
     ("downsample_then_linear", functools.partial(stitch, adapter_fn=linear)),
     ("downsample_then_3x3conv", functools.partial(stitch, adapter_fn=conv3x3)),
     ("downsample_then_block", functools.partial(stitch, adapter_fn=block)),
+    ("downsample_then_bottleneck", functools.partial(stitch, adapter_fn=bottleneck)),
     ("conv3x3_with_downsample", functools.partial(stitch, adapter_fn=conv3x3_with_downsample)),
     ("block_with_downsample", functools.partial(stitch, adapter_fn=block_with_downsample)),
+    ("bottleneck_with_downsample", functools.partial(stitch, adapter_fn=bottleneck_with_downsample)),
     # TODO: Add a "keep downsample blocks + finetune" adapter. Maybe that's what "finetune" should do.
 ]
 
