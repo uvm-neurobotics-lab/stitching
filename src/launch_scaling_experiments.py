@@ -222,6 +222,7 @@ STITCHERS = [
     ("downsample_then_block", functools.partial(stitch, adapter_fn=block)),
     ("conv3x3_with_downsample", functools.partial(stitch, adapter_fn=conv3x3_with_downsample)),
     ("block_with_downsample", functools.partial(stitch, adapter_fn=block_with_downsample)),
+    # TODO: Add a "keep downsample blocks + finetune" adapter. Maybe that's what "finetune" should do.
 ]
 
 
@@ -251,7 +252,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              " but the downside is that you will be relying on training batches only for tracking the"
                              " progress of training.")
     parser.add_argument("-o", "--output", "--dest", metavar="FOLDER", dest="save_dir", type=Path,
-                        default=Path("experiments/across-scales").resolve(), help="Root location for all experiments.")
+                        default=Path("experiments").resolve(), help="Root location for all experiments.")
 
     # Distributed/hardware args.
     parser.add_argument("-b", "--batch-size", default=256, type=int, metavar="N",
@@ -276,7 +277,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
 
     # Other args.
     argutils.add_seed_arg(parser, default_seed=1)
-    argutils.add_wandb_args(parser, allow_id=allow_id)
+    argutils.add_wandb_args(parser, dflt_project="across-scales", allow_id=allow_id)
     argutils.add_verbose_arg(parser)
     return parser
 
@@ -325,6 +326,7 @@ def validate_config(config):
         ensure_config_param(config, "src_stages", _and(of_type(list), validate_part_list))
         ensure_config_param(config, "dest_stages", _and(of_type(list), validate_part_list))
     ensure_config_param(config, "gaps", validate_gap_config)
+    ensure_config_param(config, "project", of_type(str))
 
     # Now check values related to training the model.
     datasets.check_data_config(config)
@@ -401,7 +403,7 @@ def setup_jobs(config, args, launcher_args):
     """ Write configs for each job and launch them. """
     # create folder based on config name.
     expname = config["config"].stem
-    rootdir = Path(config["save_dir"]).resolve() / expname
+    rootdir = Path(config["save_dir"]).resolve() / config["project"] / expname
     result = 0
     for gap in config["gaps"]:
         blocks_to_drop = gap["blocks_to_drop"]

@@ -319,7 +319,7 @@ def set_seed_from_args(parsed_args):
     set_seed(parsed_args.seed)
 
 
-def add_wandb_args(parser, allow_id=False):
+def add_wandb_args(parser, dflt_project="stitching", allow_id=False):
     """
     Adds arguments which would be needed by any program that uses Weights & Biases:
         - project
@@ -327,7 +327,7 @@ def add_wandb_args(parser, allow_id=False):
         - [optional] id
     """
     id_text = " Ignored if --id is used." if allow_id else ""
-    parser.add_argument("--project", default="stitching", help="Project to use for W&B logging." + id_text)
+    parser.add_argument("--project", default=dflt_project, help="Project to use for W&B logging." + id_text)
     parser.add_argument("--entity", help="Entity to use for W&B logging." + id_text)
     parser.add_argument("--group", help="Name under which to group this run in W&B.")
     if allow_id:
