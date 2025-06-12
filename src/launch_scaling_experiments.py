@@ -116,12 +116,27 @@ def finetune_stitch(src_stages, dest_stages, gap):
     dest_blocks = dest_stages[last_dropped + 1:]
 
     # Determine which downsamples exist in the gap and need to be kept.
-    # FIXME: We pretend to know which blocks are "downsample" blocks that we should keep. But this info is not actually
-    #        in the config, but it should be.
+    # FIXME: We pretend to know which blocks are "downsample" blocks that we should keep. But this info should be in the
+    #        config, not hard-coded here.
     known_downsamples = [2, 4, 6]
     down_blocks = [dest_stages[i] for i in known_downsamples if first_dropped <= i <= last_dropped]
     assert len(down_blocks) == gap["num_downsamples"], (f"num saved blocks ({len(down_blocks)}) != expected downsamples"
                                                         f" ({gap['num_downsamples']})")
+
+    # Ensure the sizes are matching, otherwise abort the fine-tuning by returning None.
+    # NOTE: These size comparisons assume we don't have a mixed-type comparison, like tuple and list.
+    src_out = next(iter(src_blocks[-1].values()))["out_format"][1]
+    dest_in = next(iter(dest_blocks[0].values()))["in_format"][1]
+    if down_blocks:
+        mid_in = next(iter(down_blocks[0].values()))["in_format"][1]
+        mid_out = next(iter(down_blocks[-1].values()))["out_format"][1]
+        if src_out != mid_in:
+            return None
+        if dest_in != mid_out:
+            return None
+    else:
+        if src_out != dest_in:
+            return None
 
     assembly = src_blocks + down_blocks + dest_blocks
     set_frozen(assembly, False)
