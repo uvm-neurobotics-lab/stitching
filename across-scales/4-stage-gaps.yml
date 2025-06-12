@@ -1,4 +1,4 @@
-# Experimental variants for stitching Stage 1 to all other stages in a 4-stage architecture.
+# Experimental variants for stitching early stages to later stages in a 4-stage architecture.
   - blocks_to_drop: [1, 1]
     num_downsamples: 0
   - blocks_to_drop: [1, 2]
@@ -7,3 +7,9 @@
     num_downsamples: 2
   - blocks_to_drop: [1, 6]
     num_downsamples: 3
+  - blocks_to_drop: [2, 2]
+    num_downsamples: 0
+  - blocks_to_drop: [2, 4]
+    num_downsamples: 1
+  - blocks_to_drop: [2, 6]
+    num_downsamples: 2
