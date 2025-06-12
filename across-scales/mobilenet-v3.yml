@@ -67,6 +67,7 @@ stages:
       out_format: vector
 
 gaps: !include 4-stage-gaps.yml
+stitchers: !include default-stitchers.yml
 
 
 train_config:

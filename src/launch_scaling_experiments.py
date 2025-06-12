@@ -262,18 +262,18 @@ def bottleneck_with_downsample(src_format, dest_format, num_downsamples):
 
 
 # TODO: Remove the conv options for a ViT?
-STITCHERS = [
-    ("finetune", finetune_stitch),
-    # ("block_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=block)),
-    # ("linear_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=linear)),
-    ("downsample_then_linear", functools.partial(stitch, adapter_fn=linear)),
-    ("downsample_then_3x3conv", functools.partial(stitch, adapter_fn=conv3x3)),
-    ("downsample_then_block", functools.partial(stitch, adapter_fn=block)),
-    ("downsample_then_bottleneck", functools.partial(stitch, adapter_fn=bottleneck)),
-    ("conv3x3_with_downsample", functools.partial(stitch, adapter_fn=conv3x3_with_downsample)),
-    ("block_with_downsample", functools.partial(stitch, adapter_fn=block_with_downsample)),
-    ("bottleneck_with_downsample", functools.partial(stitch, adapter_fn=bottleneck_with_downsample)),
-]
+STITCHERS = {
+    "finetune": finetune_stitch,
+    "block_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=block),
+    "linear_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=linear),
+    "downsample_then_linear": functools.partial(stitch, adapter_fn=linear),
+    "downsample_then_3x3conv": functools.partial(stitch, adapter_fn=conv3x3),
+    "downsample_then_block": functools.partial(stitch, adapter_fn=block),
+    "downsample_then_bottleneck": functools.partial(stitch, adapter_fn=bottleneck),
+    "conv3x3_with_downsample": functools.partial(stitch, adapter_fn=conv3x3_with_downsample),
+    "block_with_downsample": functools.partial(stitch, adapter_fn=block_with_downsample),
+    "bottleneck_with_downsample": functools.partial(stitch, adapter_fn=bottleneck_with_downsample),
+}
 
 
 def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
@@ -349,6 +349,15 @@ def validate_gap_config(gaps):
     return True
 
 
+def validate_stitcher_config(stitchers):
+    if not isinstance(stitchers, (list, tuple)):
+        raise RuntimeError(f"'stitchers' should be a list of stitcher names.")
+    for name in stitchers:
+        if name not in STITCHERS:
+            raise RuntimeError(f"Unrecognized stitcher name: {name}")
+    return True
+
+
 def validate_config(config):
     """
     Prints and validates the given training config. Throws an exception in the case of invalid or missing required
@@ -376,6 +385,7 @@ def validate_config(config):
         ensure_config_param(config, "src_stages", _and(of_type(list), validate_part_list))
         ensure_config_param(config, "dest_stages", _and(of_type(list), validate_part_list))
     ensure_config_param(config, "gaps", validate_gap_config)
+    ensure_config_param(config, "stitchers", validate_stitcher_config)
     ensure_config_param(config, "project", of_type(str))
 
     # Now check values related to training the model.
@@ -449,11 +459,12 @@ def setup_jobs(config, args, launcher_args):
     # create folder based on config name.
     expname = config["config"].stem
     rootdir = Path(config["save_dir"]).resolve() / config["project"] / expname
+    stitchers_to_run = {k: STITCHERS[k] for k in config.get("stitchers", STITCHERS.keys())}
     result = 0
     for gap in config["gaps"]:
         blocks_to_drop = gap["blocks_to_drop"]
         num_downsamples = gap["num_downsamples"]
-        for adapter_name, adapter in STITCHERS:
+        for adapter_name, adapter in stitchers_to_run.items():
             print(f"\n---- LAUNCHING gap={blocks_to_drop}, {adapter_name} ----\n")
             # Make a folder for the job.
             jobname = "-".join(["train", expname,
