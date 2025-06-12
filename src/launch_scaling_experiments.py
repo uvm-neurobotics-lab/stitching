@@ -59,7 +59,14 @@ def get_tensor_shape_sequence(src_format, dest_format, num_downsamples):
     return channels, sizes
 
 
-def stitch(src_blocks, dest_blocks, adapter_fn, num_downsamples):
+def stitch(src_stages, dest_stages, gap, adapter_fn):
+    # Everything before the first dropped block.
+    src_blocks = src_stages[:gap["blocks_to_drop"][0]]
+    # Everything after the last dropped block.
+    dest_blocks = dest_stages[gap["blocks_to_drop"][1] + 1:]
+    num_downsamples = gap["num_downsamples"]
+
+    # Pull them together with the specified adapter.
     src_format = next(iter(src_blocks[-1].values()))["out_format"]
     dest_format = next(iter(dest_blocks[0].values()))["in_format"]
     # `adapter_fn` provides a part list, could be multiple part configs.
@@ -70,7 +77,14 @@ def stitch(src_blocks, dest_blocks, adapter_fn, num_downsamples):
     return src_blocks + adapter_cfg + dest_blocks
 
 
-def stitch_no_downsample(src_blocks, dest_blocks, adapter_fn, num_downsamples):
+def stitch_no_downsample(src_stages, dest_stages, gap, adapter_fn):
+    # Everything before the first dropped block.
+    src_blocks = src_stages[:gap["blocks_to_drop"][0]]
+    # Everything after the last dropped block.
+    dest_blocks = dest_stages[gap["blocks_to_drop"][1] + 1:]
+    num_downsamples = gap["num_downsamples"]
+
+    # Pull them together with the specified adapter.
     # Modify block sizes so that no downsampling is performed.
     src_format = next(iter(src_blocks[-1].values()))["out_format"]
     dest_format = next(iter(dest_blocks[0].values()))["in_format"]
@@ -89,15 +103,27 @@ def stitch_no_downsample(src_blocks, dest_blocks, adapter_fn, num_downsamples):
     return src_blocks + adapter_cfg + dest_blocks
 
 
-def finetune_stitch(src_blocks, dest_blocks, num_downsamples):
-    """ No adapter, and unfreeze everything! """
-    src_format = next(iter(src_blocks[-1].values()))["out_format"]
-    dest_format = next(iter(dest_blocks[0].values()))["in_format"]
-    # If tensor formats don't match, then we can't finetune without any adapter.
-    # NOTE: This check requires us to have matching sequence types; we should not try to compare a list and a tuple.
-    if src_format != dest_format:
-        return None
-    assembly = src_blocks + dest_blocks
+def finetune_stitch(src_stages, dest_stages, gap):
+    """
+    No adapter, and unfreeze everything!
+    If we must perform downsamples, then keep the downsampling blocks.
+    """
+    # Everything before the first dropped block.
+    first_dropped = gap["blocks_to_drop"][0]
+    src_blocks = src_stages[:first_dropped]
+    # Everything after the last dropped block.
+    last_dropped = gap["blocks_to_drop"][1]
+    dest_blocks = dest_stages[last_dropped + 1:]
+
+    # Determine which downsamples exist in the gap and need to be kept.
+    # FIXME: We pretend to know which blocks are "downsample" blocks that we should keep. But this info is not actually
+    #        in the config, but it should be.
+    known_downsamples = [2, 4, 6]
+    down_blocks = [dest_stages[i] for i in known_downsamples if first_dropped <= i <= last_dropped]
+    assert len(down_blocks) == gap["num_downsamples"], (f"num saved blocks ({len(down_blocks)}) != expected downsamples"
+                                                        f" ({gap['num_downsamples']})")
+
+    assembly = src_blocks + down_blocks + dest_blocks
     set_frozen(assembly, False)
     return assembly
 
@@ -223,8 +249,8 @@ def bottleneck_with_downsample(src_format, dest_format, num_downsamples):
 # TODO: Remove the conv options for a ViT?
 STITCHERS = [
     ("finetune", finetune_stitch),
-    ("block_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=block)),
-    ("linear_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=linear)),
+    # ("block_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=block)),
+    # ("linear_no_downsample", functools.partial(stitch_no_downsample, adapter_fn=linear)),
     ("downsample_then_linear", functools.partial(stitch, adapter_fn=linear)),
     ("downsample_then_3x3conv", functools.partial(stitch, adapter_fn=conv3x3)),
     ("downsample_then_block", functools.partial(stitch, adapter_fn=block)),
@@ -232,7 +258,6 @@ STITCHERS = [
     ("conv3x3_with_downsample", functools.partial(stitch, adapter_fn=conv3x3_with_downsample)),
     ("block_with_downsample", functools.partial(stitch, adapter_fn=block_with_downsample)),
     ("bottleneck_with_downsample", functools.partial(stitch, adapter_fn=bottleneck_with_downsample)),
-    # TODO: Add a "keep downsample blocks + finetune" adapter. Maybe that's what "finetune" should do.
 ]
 
 
@@ -367,12 +392,7 @@ def prep_config(parser, args):
 def build_assembly(config, gap, stitch_fn):
     src_stages = deepcopy(config.get("src_stages", config.get("stages")))
     dest_stages = deepcopy(config.get("dest_stages", config.get("stages")))
-    # Everything before the first dropped block.
-    src_blocks = src_stages[:gap["blocks_to_drop"][0]]
-    # Everything after the last dropped block.
-    dest_blocks = dest_stages[gap["blocks_to_drop"][1] + 1:]
-    # Pull them together with the specified stitcher.
-    return stitch_fn(src_blocks, dest_blocks, num_downsamples=gap["num_downsamples"])
+    return stitch_fn(src_stages, dest_stages, gap)
 
 
 def build_job_config(config, save_dir, assembly):
@@ -446,34 +466,32 @@ def setup_jobs(config, args, launcher_args):
                 print(f"Adapter {adapter_name} is not applicable to this gap. Skipping.")
                 continue
 
-            # Write a config (if doesn't exist).
+            # Write a config (overwrite if exists).
             cfgfile = outdir / "config.yml"
-            if args.force or not cfgfile.is_file():
-                jobcfg = build_job_config(config, outdir, assembly)
-                if not args.dry_run:
-                    cfgfile = cfgfile.resolve()
-                    with open(cfgfile, "w") as f:
-                        yaml.dump(jobcfg, f)
-                else:
-                    print(f"Would write training config to file: {str(outdir / cfgfile.name)}")
-                    if args.launch_verbose:
-                        print(f"\nConfig to be written:\n{yaml.dump(jobcfg)}\n\n")
+            jobcfg = build_job_config(config, outdir, assembly)
+            if not args.dry_run:
+                cfgfile = cfgfile.resolve()
+                with open(cfgfile, "w") as f:
+                    yaml.dump(jobcfg, f)
+            else:
+                print(f"Would write training config to file: {str(outdir / cfgfile.name)}")
+                if args.launch_verbose:
+                    print(f"\nConfig to be written:\n{yaml.dump(jobcfg)}\n\n")
 
-            # Write the metadata (if doesn't exist).
+            # Write the metadata (overwrite if exists).
             metafile = outdir / "metadata.yml"
-            if args.force or not metafile.is_file():
-                metacfg = {"arch": expname, "first_deleted_block": blocks_to_drop[0],
-                           "last_deleted_block": blocks_to_drop[1], "num_downsamples": num_downsamples,
-                           "adapter": adapter_name}
-                metacfg = make_pretty(metacfg)
-                if not args.dry_run:
-                    metafile = metafile.resolve()
-                    with open(metafile, "w") as f:
-                        yaml.dump(metacfg, f)
-                else:
-                    print(f"Would write metadata to file: {str(outdir / metafile.name)}")
-                    if args.launch_verbose:
-                        print(f"\nMetadata to be written:\n{metacfg}\n\n")
+            metacfg = {"arch": expname, "first_deleted_block": blocks_to_drop[0],
+                       "last_deleted_block": blocks_to_drop[1], "num_downsamples": num_downsamples,
+                       "adapter": adapter_name}
+            metacfg = make_pretty(metacfg)
+            if not args.dry_run:
+                metafile = metafile.resolve()
+                with open(metafile, "w") as f:
+                    yaml.dump(metacfg, f)
+            else:
+                print(f"Would write metadata to file: {str(outdir / metafile.name)}")
+                if args.launch_verbose:
+                    print(f"\nMetadata to be written:\n{metacfg}\n\n")
 
             # Get the launch command.
             command = build_command(args.cluster, args.conda_env, cfgfile, config["train_config"].get("seed"),
