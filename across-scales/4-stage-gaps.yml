@@ -7,9 +7,9 @@
     num_downsamples: 2
   - blocks_to_drop: [1, 6]
     num_downsamples: 3
-  - blocks_to_drop: [2, 2]
+  - blocks_to_drop: [3, 3]
     num_downsamples: 0
-  - blocks_to_drop: [2, 4]
+  - blocks_to_drop: [3, 4]
     num_downsamples: 1
-  - blocks_to_drop: [2, 6]
+  - blocks_to_drop: [3, 6]
     num_downsamples: 2
