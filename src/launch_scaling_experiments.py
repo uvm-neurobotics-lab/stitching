@@ -118,7 +118,7 @@ def finetune_stitch(src_stages, dest_stages, gap):
     # Determine which downsamples exist in the gap and need to be kept.
     # FIXME: We pretend to know which blocks are "downsample" blocks that we should keep. But this info should be in the
     #        config, not hard-coded here.
-    known_downsamples = [2, 4, 6]
+    known_downsamples = list(filter(lambda x: x > first_dropped, [2, 4, 6]))
     down_blocks = [dest_stages[i] for i in known_downsamples if first_dropped <= i <= last_dropped]
     assert len(down_blocks) == gap["num_downsamples"], (f"num saved blocks ({len(down_blocks)}) != expected downsamples"
                                                         f" ({gap['num_downsamples']})")
@@ -265,6 +265,7 @@ def bottleneck_with_downsample(src_format, dest_format, num_downsamples):
 STITCHERS = {
     "finetune": finetune_stitch,
     "block_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=block),
+    "bottleneck_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=bottleneck),
     "linear_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=linear),
     "downsample_then_linear": functools.partial(stitch, adapter_fn=linear),
     "downsample_then_3x3conv": functools.partial(stitch, adapter_fn=conv3x3),
