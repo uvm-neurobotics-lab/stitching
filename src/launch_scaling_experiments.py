@@ -17,11 +17,9 @@ import utils.argparsing as argutils
 import utils.datasets as datasets
 import utils.training as training
 from assembly import validate_part_list
-from utils import as_strings, ensure_config_param, make_pretty, _and, of_type
+from stitch_train import build_command
+from utils import ensure_config_param, make_pretty, _and, of_type
 from utils.slurm import call_sbatch
-
-# Get the resolved path of this script, before we switch directories.
-SCRIPT_DIR = Path(__file__).parent.resolve()
 
 
 def result_filename(config):
@@ -436,26 +434,7 @@ def build_job_config(config, save_dir, assembly):
     return make_pretty(jobcfg)
 
 
-def build_command(cluster, conda_env, config_path, seed, result_file, verbosity, launcher_args):
-    # Find the script to run, relative to this file.
-    target_script = SCRIPT_DIR / "stitch_train.py"
-    assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
-    sbatch_script = SCRIPT_DIR.parent / ("hgtrain.sbatch" if cluster == "hgnodes" else "train.sbatch")
-    assert sbatch_script.is_file(), f"SBATCH file ({sbatch_script}) not found or is not a file."
-
-    # NOTE: We allow launching multiple different seeds from the same config, so supply these on the command line.
-    train_cmd = [target_script, "--config", config_path, "--seed", seed, "--metrics-output", result_file]
-    if verbosity:
-        train_cmd.append("-" + ("v" * verbosity))
-
-    # Add launcher wrapper.
-    launch_cmd = ["sbatch"] + launcher_args + [sbatch_script, conda_env] + train_cmd
-    launch_cmd = as_strings(launch_cmd)
-
-    return launch_cmd
-
-
-def setup_jobs(config, args, launcher_args):
+def setup_and_launch_jobs(config, args, launcher_args):
     """ Write configs for each job and launch them. """
     # create folder based on config name.
     expname = config["config"].stem
@@ -525,6 +504,8 @@ def setup_jobs(config, args, launcher_args):
                                     res_fname, args.verbose, launcher_args)
 
             # Launch the job.
+            # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while
+            #       using torchrun.
             result += call_sbatch(command, args.launch_verbose, args.dry_run, env={"MKL_THREADING_LAYER": "GNU"})
 
     return result
@@ -535,7 +516,7 @@ def main(argv=None):
     args, launcher_args = parser.parse_known_args(argv)
 
     config = prep_config(parser, args)
-    return setup_jobs(config, args, launcher_args)
+    return setup_and_launch_jobs(config, args, launcher_args)
 
 
 if __name__ == "__main__":

@@ -21,13 +21,51 @@ import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
 from assembly import Assembly, validate_part, validate_part_list
-from utils import ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
+from utils import as_strings, ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
+
+# Get the resolved path of this script, before we switch directories.
+SCRIPT_DIR = Path(__file__).parent.resolve()
 
 NUM_CORES = os.cpu_count()
 if hasattr(os, "sched_getaffinity"):
     # This function is only available on certain platforms. When running with Slurm, it can tell us the true
     # number of cores we have access to.
     NUM_CORES = len(os.sched_getaffinity(0))
+
+
+def build_command(cluster, conda_env, config_path, seed, result_file, verbosity, launcher_args):
+    """
+    Builds an `sbatch` call suitable for launching this script on a Slurm cluster. Once built, the command can be
+    passed to `utils.slurm.call_sbatch()`.
+    Args:
+        cluster: Name of the partition to launch on (actually this just maps to the pre-baked sbatch scripts in the
+                 same directory as this script, and is specifically based on UVM's Slurm cluster).
+        conda_env: The name of the conda environment to activate before running the script.
+        config_path: The path of the config to pass to --config.
+        seed: The seed to use for --seed.
+        result_file: The path or filename to use for --metrics-output.
+        verbosity: The verbosity level to run at.
+        launcher_args: Arguments to be passed on to `sbatch`.
+
+    Returns:
+        A list of strings which can be used as an argument to `subprocess.run()`.
+    """
+    # Find the script to run, relative to this file.
+    target_script = SCRIPT_DIR / "stitch_train.py"
+    assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
+    sbatch_script = SCRIPT_DIR.parent / ("hgtrain.sbatch" if cluster == "hgnodes" else "train.sbatch")
+    assert sbatch_script.is_file(), f"SBATCH file ({sbatch_script}) not found or is not a file."
+
+    # NOTE: We allow launching multiple different seeds from the same config, so supply these on the command line.
+    train_cmd = [target_script, "--config", config_path, "--seed", seed, "--metrics-output", result_file]
+    if verbosity:
+        train_cmd.append("-" + ("v" * verbosity))
+
+    # Add launcher wrapper.
+    launch_cmd = ["sbatch"] + launcher_args + [sbatch_script, conda_env] + train_cmd
+    launch_cmd = as_strings(launch_cmd)
+
+    return launch_cmd
 
 
 def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
