@@ -12,6 +12,8 @@ import utils.argparsing as argutils
 from stitch_train import build_command
 from utils.slurm import call_sbatch
 
+CFG_FILENAME = "config.yml"
+
 
 def create_arg_parser(desc, allow_abbrev=True):
     """
@@ -64,6 +66,8 @@ def scan_and_launch(args, launcher_args):
     existing_results = list(sorted(expdir.rglob(f"result-{args.orig_seed}.pkl")))
     for existing_file in existing_results:
         print(f"\n---- LAUNCHING {existing_file.parent} ----\n")
+        cfgfile = existing_file.parent.resolve() / CFG_FILENAME
+        assert cfgfile.is_file(), f"Missing config file: {cfgfile}"
 
         # Check if results already exist.
         res_fname = f"result-{args.seed}.pkl"
@@ -76,7 +80,7 @@ def scan_and_launch(args, launcher_args):
                 continue
 
         # Get the launch command.
-        command = build_command(args.cluster, args.conda_env, existing_file, args.seed, res_fname, args.verbose,
+        command = build_command(args.cluster, args.conda_env, CFG_FILENAME, args.seed, res_fname, args.verbose,
                                 launcher_args)
 
         # Launch the job.
