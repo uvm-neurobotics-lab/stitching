@@ -55,18 +55,20 @@ def scan_and_launch(args, launcher_args):
     """ Scan for job configs and launch each one if the given results don't already exist. """
     result = 0
     launched = 0
-
-    # Get relative paths, for cleaner printing.
-    try:
-        expdir = args.dir.relative_to(Path(".").resolve())
-    except ValueError:
-        # Paths are not relative, so just use the original value.
-        expdir = args.dir
+    root_path = Path(".").resolve()
 
     # Launch a job for each config we find.
-    existing_results = list(sorted(expdir.rglob(f"result-{args.orig_seed}.pkl")))
+    existing_results = list(sorted(args.dir.resolve().rglob(f"result-{args.orig_seed}.pkl")))
     for existing_file in existing_results:
-        print(f"\n---- LAUNCHING {existing_file.parent} ----\n")
+        # Get relative paths, for cleaner printing.
+        try:
+            name = str(existing_file.parent.relative_to(root_path))
+        except ValueError:
+            # Paths are not relative, so just use the full path.
+            name = str(existing_file.parent)
+        print(f"\n---- LAUNCHING {name} ----\n")
+
+        # Ensure config exists, navigate to parent folder.
         cfgfile = existing_file.parent.resolve() / CFG_FILENAME
         assert cfgfile.is_file(), f"Missing config file: {cfgfile}"
         outdir = existing_file.parent
