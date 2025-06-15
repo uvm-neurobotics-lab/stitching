@@ -5,6 +5,7 @@ new random seeds.
 To test this script, try:
     python src/launch_replicates.py -d <experiment-folder> --seed 67890 -n -vv
 """
+import os
 import sys
 from pathlib import Path
 
@@ -68,6 +69,12 @@ def scan_and_launch(args, launcher_args):
         print(f"\n---- LAUNCHING {existing_file.parent} ----\n")
         cfgfile = existing_file.parent.resolve() / CFG_FILENAME
         assert cfgfile.is_file(), f"Missing config file: {cfgfile}"
+        outdir = existing_file.parent
+        if not args.dry_run:
+            os.chdir(outdir.resolve())
+            print(f"Run folder: {outdir}")
+        else:
+            print(f"Would change directories to run folder: {outdir}")
 
         # Check if results already exist.
         res_fname = f"result-{args.seed}.pkl"
