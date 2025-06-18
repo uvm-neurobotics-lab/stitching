@@ -2,9 +2,9 @@
   - finetune
   - linear_no_downsample
   - linear_relu_no_downsample
-#  - linear_post_downsample
   - bottleneck_no_downsample
 #  - block_no_downsample
+#  - linear_post_downsample
   - downsample_then_linear
   - downsample_then_linear_relu
   - downsample_then_3x3conv
