@@ -181,6 +181,25 @@ def linear_post_downsample(src_format, dest_format, num_downsamples):
     return parts
 
 
+def linear_plus_relu(src_format, dest_format, num_downsamples):
+    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
+    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+
+    parts = []
+    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        parts.append({
+            "SimpleAdapter": {
+                conv_or_fc: 1,
+                "kernel_size": 1,
+                "in_channels": ich,
+                "out_channels": och,
+                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
+            }
+        })
+    return parts
+
+
 def conv3x3(src_format, dest_format, num_downsamples):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
     # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
@@ -262,16 +281,19 @@ def bottleneck_with_downsample(src_format, dest_format, num_downsamples):
 # TODO: Remove the conv options for a ViT?
 STITCHERS = {
     "finetune": finetune_stitch,
-    "block_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=block),
-    "bottleneck_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=bottleneck),
     "linear_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=linear),
+    "linear_relu_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=linear_plus_relu),
+    "linear_post_downsample": functools.partial(stitch, adapter_fn=linear_post_downsample),
+    "bottleneck_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=bottleneck),
+    "block_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=block),
     "downsample_then_linear": functools.partial(stitch, adapter_fn=linear),
+    "downsample_then_linear_relu": functools.partial(stitch, adapter_fn=linear_plus_relu),
     "downsample_then_3x3conv": functools.partial(stitch, adapter_fn=conv3x3),
-    "downsample_then_block": functools.partial(stitch, adapter_fn=block),
     "downsample_then_bottleneck": functools.partial(stitch, adapter_fn=bottleneck),
+    "downsample_then_block": functools.partial(stitch, adapter_fn=block),
     "conv3x3_with_downsample": functools.partial(stitch, adapter_fn=conv3x3_with_downsample),
-    "block_with_downsample": functools.partial(stitch, adapter_fn=block_with_downsample),
     "bottleneck_with_downsample": functools.partial(stitch, adapter_fn=bottleneck_with_downsample),
+    "block_with_downsample": functools.partial(stitch, adapter_fn=block_with_downsample),
 }
 
 

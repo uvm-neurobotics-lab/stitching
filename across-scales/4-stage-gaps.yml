@@ -13,3 +13,7 @@
     num_downsamples: 1
   - blocks_to_drop: [3, 6]
     num_downsamples: 2
+  - blocks_to_drop: [5, 5]
+    num_downsamples: 0
+  - blocks_to_drop: [5, 6]
+    num_downsamples: 1
