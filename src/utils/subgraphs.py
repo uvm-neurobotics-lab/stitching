@@ -757,10 +757,12 @@ def create_sub_network(
                     mode_return_nodes[mode].pop(query)
                     break
 
-        new_output_nodes = OrderedDict(reversed(list(new_output_nodes.items())))
+        new_output_nodes = list(reversed(new_output_nodes.items()))
+        last_node_for_output = new_output_nodes[-1][1]
+        new_output_nodes = OrderedDict(new_output_nodes)
 
-        # And add them in the end of the graph
-        with graph_module.graph.inserting_after(nodes[-1]):
+        # And add them after the final return node, marking this as the new and of the graph.
+        with graph_module.graph.inserting_after(last_node_for_output):
             new_output = graph_module.graph.output(new_output_nodes)
 
         # Find nodes corresponding to input_nodes and mark them as new_input_nodes.

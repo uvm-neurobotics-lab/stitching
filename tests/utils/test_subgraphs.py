@@ -510,15 +510,76 @@ def test_vit_one_block_subnet():
     return {'blocks.7': add_16}"""
 
 
+def test_mobilenetv3_one_block_subnet():
+    model = timm.create_model("mobilenetv3_large_100")
+    model = create_sub_network(model, input_nodes=["blocks.1.1"], return_nodes=["blocks.1.1"])
+    for n, m in model.named_modules():
+        assert n.startswith("blocks.1.1") or (n in ("", "blocks", "blocks.1")), f"Unexpected module: {n}"
+    # Lazy shortcut: instead of checking all this in code, just use the string format.
+    # Downside: if the print format ever changed, this would fail unnecessarily.
+    assert str(model.graph) == """graph():
+    %subnet_input_1 : [num_users=2] = placeholder[target=subnet_input_1]
+    %blocks_1_1_conv_pw : [num_users=2] = call_module[target=blocks.1.1.conv_pw](args = (%subnet_input_1,), kwargs = {})
+    %getattr_13 : [num_users=1] = call_function[target=builtins.getattr](args = (%blocks_1_1_conv_pw, ndim), kwargs = {})
+    %eq_6 : [num_users=1] = call_function[target=operator.eq](args = (%getattr_13, 4), kwargs = {})
+    %_assert_6 : [num_users=0] = call_function[target=torch._assert](args = (%eq_6, expected 4D input (got Proxy(getattr_14)D input)), kwargs = {})
+    %blocks_1_1_bn1_weight : [num_users=1] = get_attr[target=blocks.1.1.bn1.weight]
+    %blocks_1_1_bn1_bias : [num_users=1] = get_attr[target=blocks.1.1.bn1.bias]
+    %blocks_1_1_bn1_running_mean : [num_users=1] = get_attr[target=blocks.1.1.bn1.running_mean]
+    %blocks_1_1_bn1_running_var : [num_users=1] = get_attr[target=blocks.1.1.bn1.running_var]
+    %batch_norm_6 : [num_users=1] = call_function[target=torch.nn.functional.batch_norm](args = (%blocks_1_1_conv_pw, %blocks_1_1_bn1_running_mean, %blocks_1_1_bn1_running_var), kwargs = {weight: %blocks_1_1_bn1_weight, bias: %blocks_1_1_bn1_bias, training: True, momentum: 0.1, eps: 1e-05})
+    %blocks_1_1_bn1_drop : [num_users=1] = call_module[target=blocks.1.1.bn1.drop](args = (%batch_norm_6,), kwargs = {})
+    %blocks_1_1_bn1_act : [num_users=1] = call_module[target=blocks.1.1.bn1.act](args = (%blocks_1_1_bn1_drop,), kwargs = {})
+    %blocks_1_1_conv_dw : [num_users=2] = call_module[target=blocks.1.1.conv_dw](args = (%blocks_1_1_bn1_act,), kwargs = {})
+    %getattr_15 : [num_users=1] = call_function[target=builtins.getattr](args = (%blocks_1_1_conv_dw, ndim), kwargs = {})
+    %eq_7 : [num_users=1] = call_function[target=operator.eq](args = (%getattr_15, 4), kwargs = {})
+    %_assert_7 : [num_users=0] = call_function[target=torch._assert](args = (%eq_7, expected 4D input (got Proxy(getattr_16)D input)), kwargs = {})
+    %blocks_1_1_bn2_weight : [num_users=1] = get_attr[target=blocks.1.1.bn2.weight]
+    %blocks_1_1_bn2_bias : [num_users=1] = get_attr[target=blocks.1.1.bn2.bias]
+    %blocks_1_1_bn2_running_mean : [num_users=1] = get_attr[target=blocks.1.1.bn2.running_mean]
+    %blocks_1_1_bn2_running_var : [num_users=1] = get_attr[target=blocks.1.1.bn2.running_var]
+    %batch_norm_7 : [num_users=1] = call_function[target=torch.nn.functional.batch_norm](args = (%blocks_1_1_conv_dw, %blocks_1_1_bn2_running_mean, %blocks_1_1_bn2_running_var), kwargs = {weight: %blocks_1_1_bn2_weight, bias: %blocks_1_1_bn2_bias, training: True, momentum: 0.1, eps: 1e-05})
+    %blocks_1_1_bn2_drop : [num_users=1] = call_module[target=blocks.1.1.bn2.drop](args = (%batch_norm_7,), kwargs = {})
+    %blocks_1_1_bn2_act : [num_users=1] = call_module[target=blocks.1.1.bn2.act](args = (%blocks_1_1_bn2_drop,), kwargs = {})
+    %blocks_1_1_aa : [num_users=1] = call_module[target=blocks.1.1.aa](args = (%blocks_1_1_bn2_act,), kwargs = {})
+    %blocks_1_1_se : [num_users=1] = call_module[target=blocks.1.1.se](args = (%blocks_1_1_aa,), kwargs = {})
+    %blocks_1_1_conv_pwl : [num_users=2] = call_module[target=blocks.1.1.conv_pwl](args = (%blocks_1_1_se,), kwargs = {})
+    %getattr_17 : [num_users=1] = call_function[target=builtins.getattr](args = (%blocks_1_1_conv_pwl, ndim), kwargs = {})
+    %eq_8 : [num_users=1] = call_function[target=operator.eq](args = (%getattr_17, 4), kwargs = {})
+    %_assert_8 : [num_users=0] = call_function[target=torch._assert](args = (%eq_8, expected 4D input (got Proxy(getattr_18)D input)), kwargs = {})
+    %blocks_1_1_bn3_weight : [num_users=1] = get_attr[target=blocks.1.1.bn3.weight]
+    %blocks_1_1_bn3_bias : [num_users=1] = get_attr[target=blocks.1.1.bn3.bias]
+    %blocks_1_1_bn3_running_mean : [num_users=1] = get_attr[target=blocks.1.1.bn3.running_mean]
+    %blocks_1_1_bn3_running_var : [num_users=1] = get_attr[target=blocks.1.1.bn3.running_var]
+    %batch_norm_8 : [num_users=1] = call_function[target=torch.nn.functional.batch_norm](args = (%blocks_1_1_conv_pwl, %blocks_1_1_bn3_running_mean, %blocks_1_1_bn3_running_var), kwargs = {weight: %blocks_1_1_bn3_weight, bias: %blocks_1_1_bn3_bias, training: True, momentum: 0.1, eps: 1e-05})
+    %blocks_1_1_bn3_drop : [num_users=1] = call_module[target=blocks.1.1.bn3.drop](args = (%batch_norm_8,), kwargs = {})
+    %blocks_1_1_bn3_act : [num_users=1] = call_module[target=blocks.1.1.bn3.act](args = (%blocks_1_1_bn3_drop,), kwargs = {})
+    %blocks_1_1_drop_path : [num_users=1] = call_module[target=blocks.1.1.drop_path](args = (%blocks_1_1_bn3_act,), kwargs = {})
+    %add_1 : [num_users=1] = call_function[target=operator.add](args = (%blocks_1_1_drop_path, %subnet_input_1), kwargs = {})
+    return {'blocks.1.1': add_1}"""
+
+
 # def test_tracing():
 #     """This is here in case you want to use it to print a model graph or test the tracer."""
 #     import math
+#     from torch import fx
+#     from adapters import ResNetBasicBlock, ResNetBottleneck
+#     from utils import num_params
 #     from utils.subgraphs import _get_leaf_modules_for_ops, NodePathTracer
 #     # model = torchvision.models.resnext50_32x4d()
-#     model = timm.create_model("mobilenetv3_large_100")
+#     model = timm.create_model("resnet50")
+#     print()
+#     print(f"Number of parameters: {num_params(model):.3e}")
+#     print(f"Num params in BasicBlock: {num_params(ResNetBasicBlock(256, 512)):.3e}")
+#     print(f"Num params in Bottleneck: {num_params(ResNetBottleneck(256, 512)):.3e}")
+#     print(f"Num params in BasicBlock 4x: {num_params(ResNetBasicBlock(1024, 2048)):.3e}")
+#     print(f"Num params in Bottleneck 4x: {num_params(ResNetBottleneck(1024, 2048)):.3e}")
+#     print()
+#     print(model)
 #     tracer = NodePathTracer(autowrap_modules=(math, torchvision.ops), leaf_modules=_get_leaf_modules_for_ops())
 #     graph = tracer.trace(model)
 #     print()
+#     print(f"Number of parameters in graph: {num_params(fx.GraphModule(tracer.root, graph, model.__class__.__name__)):.3e}")
 #     print(graph)
 #     # graph.print_tabular()
 #     print("\n".join([str(x) for x in tracer.node_to_qualname.items()]))
