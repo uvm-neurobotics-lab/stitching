@@ -10,6 +10,7 @@ dependencies:
   - tqdm
   - pytest
   - tabulate
+  - torchtnt  # only for FLOP counts in the analysis notebooks
   - wandb  # optional
   - pip:
       - torch
