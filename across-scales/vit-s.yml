@@ -1,0 +1,91 @@
+#
+# Template for running cross-scales experiments on ViT-Small.
+#
+# For reference, available ViT-Large models from timm:
+#  - vit_small_patch16_224.augreg_in21k_ft_in1k: 81.4% (Self-supervised + fine-tuning from "How to train your ViT")
+#  - vit_small_patch16_224.augreg_in1k:          78.8% (Supervised method from "How to train your ViT")
+#
+
+stages:
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: x
+      block_output: blocks.0
+      in_format: img
+      out_format: [bert, [384, 196]]
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.1
+      block_output: blocks.2
+      in_format: [bert, [384, 196]]
+      out_format: [bert, [384, 196]]
+  - Subnet:  # Downsample block placeholder (not an actual downsample)
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.3
+      block_output: blocks.3
+      in_format: [bert, [384, 196]]
+      out_format: [bert, [384, 196]]
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.4
+      block_output: blocks.5
+      in_format: [bert, [384, 196]]
+      out_format: [bert, [384, 196]]
+  - Subnet:  # Downsample block placeholder (not an actual downsample)
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.6
+      block_output: blocks.6
+      in_format: [bert, [384, 196]]
+      out_format: [bert, [384, 196]]
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.7
+      block_output: blocks.8
+      in_format: [bert, [384, 196]]
+      out_format: [bert, [384, 196]]
+  - Subnet:  # Downsample block placeholder (not an actual downsample)
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.9
+      block_output: blocks.9
+      in_format: [bert, [384, 196]]
+      out_format: [bert, [384, 196]]
+  - Subnet:
+      backend: timm
+      model_name: vit_small_patch16_224.augreg_in1k
+      block_input: blocks.10
+      block_output: head
+      in_format: [bert, [384, 196]]
+      out_format: vector
+
+gaps: !include 4-stage-gaps.yml
+stitchers: !include default-stitchers.yml
+
+
+train_config:
+  # Dataset
+  dataset: imagenet
+  data_augmentation: true
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  # In Appendix A.4 of "Revisiting Model Stitching" they say, "All stitching layers were optimized with Adam cosine
+  # learning rate schedule and initial learning rate 0.001".
+  batch_size: 256
+  optimizer: AdamW
+  optimizer_args:
+    lr: 2.0e-3
+    weight_decay: 0.05
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
