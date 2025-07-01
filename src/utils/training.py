@@ -50,7 +50,7 @@ def check_train_config(config: dict):
     ensure_config_param(config, "start_epoch", _and(of_type(int), gte_zero), dflt=0)
     ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
     if "save_dir" in config:
-        config["save_dir"] = Path(config["save_dir"]).resolve()  # ensure type is Path, not string.
+        config["save_dir"] = Path(config["save_dir"]).expanduser().resolve()  # ensure type is Path, not string.
 
     ensure_config_param(config, "train_config", of_type(dict))
     ensure_config_param(config, ["train_config", "seed"], of_type(int))

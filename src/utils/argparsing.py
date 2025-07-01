@@ -32,7 +32,7 @@ def resolved_path(str_path):
     Returns:
         pathlib.Path: The fully-resolved path object.
     """
-    return Path(str_path).resolve()
+    return Path(str_path).expanduser().resolve()
 
 
 def existing_path(str_path):
@@ -47,7 +47,7 @@ def existing_path(str_path):
     Returns:
         pathlib.Path: The fully-resolved path object, if it exists.
     """
-    path = Path(str_path).resolve()
+    path = Path(str_path).expanduser().resolve()
     if path.exists():
         return path
     else:

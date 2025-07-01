@@ -136,7 +136,7 @@ def get_result_file(config):
     if not str(resfile).endswith(".pkl"):
         # Assume this is intended as a directory name, even if it doesn't exist.
         resfile = resfile / "result.pkl"
-    resfile = resfile.resolve()
+    resfile = resfile.expanduser().resolve()
     return resfile
 
 

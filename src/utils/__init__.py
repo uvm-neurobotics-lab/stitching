@@ -184,7 +184,7 @@ def make_pretty(config, sort=False):
         return [make_pretty(v) for v in config]
     # Replace paths with fully-resolved path strings for improved readability when printing/writing config.
     elif isinstance(config, Path):
-        return str(config.resolve())
+        return str(config.expanduser().resolve())
     else:
         return config
 
