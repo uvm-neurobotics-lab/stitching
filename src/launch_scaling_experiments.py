@@ -69,6 +69,8 @@ def stitch(src_stages, dest_stages, gap, adapter_fn):
     dest_format = next(iter(dest_blocks[0].values()))["in_format"]
     # `adapter_fn` provides a part list, could be multiple part configs.
     adapter_cfg = adapter_fn(src_format, dest_format, num_downsamples)
+    if not adapter_cfg:  # Allows adapter functions to opt out, saying they are not compatible with this gap.
+        return None
     set_frozen(src_blocks, True)
     set_frozen(adapter_cfg, False)
     set_frozen(dest_blocks, True)
@@ -95,6 +97,8 @@ def stitch_no_downsample(src_stages, dest_stages, gap, adapter_fn):
         bargs["out_format"] = bargs["out_format"][0]  # Just keep the format indicator ("img", "token", etc.).
     # `adapter_fn` provides a part list, could be multiple part configs.
     adapter_cfg = adapter_fn(src_format, dest_format, num_downsamples)
+    if not adapter_cfg:  # Allows adapter functions to opt out, saying they are not compatible with this gap.
+        return None
     set_frozen(src_blocks, True)
     set_frozen(adapter_cfg, False)
     set_frozen(dest_blocks, True)
@@ -141,144 +145,116 @@ def finetune_stitch(src_stages, dest_stages, gap):
     return assembly
 
 
-def linear(src_format, dest_format, num_downsamples):
+def is_imagelike(src_format, dest_format):
+    return src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")
+
+
+def make_adapter_series(src_format, dest_format, num_downsamples, kind="SimpleAdapter", pre_downsample=True,
+                        imglike=None, addl_args_fn=None, **kwargs):
     channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
-    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
-    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+    if imglike is None:
+        # If either input or output is image-like, declare this adapter as image-like.
+        imglike = is_imagelike(src_format, dest_format)
 
     parts = []
     for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
+        # Matching the output size means we force the downsampling to happen before the adapter.
+        insize = osz if pre_downsample else isz
+        in_format = ["img", [ich, insize, insize]] if imglike else [src_format[0], [ich, insize]]
+        part_args = {
+            "in_channels": ich,
+            "out_channels": och,
+            "in_format": in_format,
+            **kwargs
+        }
+        # This function allows callers to add customizations that differ for each adapter. (Otherwise kwargs would apply
+        # the same to all adapters.)
+        if addl_args_fn is not None:
+            part_args.update(addl_args_fn(ich, och, isz, osz))
         parts.append({
-            "SimpleAdapter": {
-                conv_or_fc: 1,
-                "kernel_size": 1,
-                "nonlinearity": False,
-                "in_channels": ich,
-                "out_channels": och,
-                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
-            }
+            kind: part_args
         })
     return parts
 
 
-def linear_post_downsample(src_format, dest_format, num_downsamples):
-    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+def simple_adapter(src_format, dest_format, num_downsamples, kind="SimpleAdapter", pre_downsample=True, **kwargs):
     # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
-    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+    imglike = src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")
+    if "num_conv" not in kwargs and "num_fc" not in kwargs:
+        conv_or_fc = "num_conv" if imglike else "num_fc"
+        kwargs.setdefault(conv_or_fc, 1)
+    kwargs.setdefault("nonlinearity", False)
+    if imglike:
+        kwargs.setdefault("kernel_size", 1)
+    return make_adapter_series(src_format, dest_format, num_downsamples, kind, pre_downsample, **kwargs)
 
-    parts = []
-    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
-        parts.append({
-            "SimpleAdapter": {
-                conv_or_fc: 1,
-                "kernel_size": 1,
-                "nonlinearity": False,
-                "in_channels": ich,
-                "out_channels": och,
-                "in_format": ["img", [ich, isz, isz]],  # Use isz, so we downsample after the adapter.
-            }
-        })
-    return parts
+
+def linear(src_format, dest_format, num_downsamples, **kwargs):
+    return simple_adapter(src_format, dest_format, num_downsamples, **kwargs)
+
+
+def linear_post_downsample(src_format, dest_format, num_downsamples, **kwargs):
+    return simple_adapter(src_format, dest_format, num_downsamples, pre_downsample=False, **kwargs)
 
 
 def linear_plus_relu(src_format, dest_format, num_downsamples):
-    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
-    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
-    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
-
-    parts = []
-    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
-        parts.append({
-            "SimpleAdapter": {
-                conv_or_fc: 1,
-                "kernel_size": 1,
-                "in_channels": ich,
-                "out_channels": och,
-                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
-            }
-        })
-    return parts
+    return simple_adapter(src_format, dest_format, num_downsamples, nonlinearity=True)
 
 
 def conv3x3(src_format, dest_format, num_downsamples):
-    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
-    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
-    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
-
-    parts = []
-    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
-        parts.append({
-            "SimpleAdapter": {
-                conv_or_fc: 1,
-                "kernel_size": 3,
-                "in_channels": ich,
-                "out_channels": och,
-                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
-            }
-        })
-    return parts
+    if not is_imagelike(src_format, dest_format):
+        # Conv 3x3 only applies to image-like formats.
+        return None
+    return simple_adapter(src_format, dest_format, num_downsamples, nonlinearity=True, kernel_size=3)
 
 
-def block(src_format, dest_format, num_downsamples, kind="ResNetBasicBlock"):
-    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
-
-    parts = []
-    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
-        parts.append({
-            kind: {
-                "in_channels": ich,
-                "out_channels": och,
-                "in_format": ["img", [ich, osz, osz]],  # Use osz, so we downsample before the adapter.
-            }
-        })
-    return parts
+def block(src_format, dest_format, num_downsamples, kind=None, **kwargs):
+    if kind is None:
+        imglike = is_imagelike(src_format, dest_format)
+        kind = "ResNetBasicBlock" if imglike else "VisionTransformerBlock"
+    else:
+        imglike = (kind == "ResNetBasicBlock" or kind == "ResNetBottleneck")
+    return make_adapter_series(src_format, dest_format, num_downsamples, kind, imglike=imglike, **kwargs)
 
 
 def bottleneck(src_format, dest_format, num_downsamples):
+    if not is_imagelike(src_format, dest_format):
+        # Currently we only have bottleneck adapters for image-like formats.
+        return None
     return block(src_format, dest_format, num_downsamples, "ResNetBottleneck")
 
 
 def conv3x3_with_downsample(src_format, dest_format, num_downsamples):
-    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
-    # Use 1x1 convs if either input or output is in image-like format. Otherwise, use fully-connected layers.
-    conv_or_fc = "num_conv" if (src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")) else "num_fc"
+    if not is_imagelike(src_format, dest_format):
+        # Conv 3x3 only applies to image-like formats.
+        return None
 
-    parts = []
-    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
-        stride = isz // osz
-        parts.append({
-            "SimpleAdapter": {
-                conv_or_fc: 1,
-                "kernel_size": 3,
-                "stride": stride,
-                "in_channels": ich,
-                "out_channels": och,
-            }
-        })
-    return parts
+    def add_stride(ich, och, isz, osz):
+        return {"stride": isz // osz}
+
+    return simple_adapter(src_format, dest_format, num_downsamples, nonlinearity=True, kernel_size=3,
+                          pre_downsample=False, addl_args_fn=add_stride)
 
 
 def block_with_downsample(src_format, dest_format, num_downsamples, kind="ResNetBasicBlock"):
-    channels, sizes = get_tensor_shape_sequence(src_format, dest_format, num_downsamples)
+    if not is_imagelike(src_format, dest_format):
+        # Strides only apply to image-like formats.
+        # TODO: Is there a natural way to downsample within a transformer block?
+        return None
 
-    parts = []
-    for ich, och, isz, osz in zip(channels, channels[1:], sizes, sizes[1:]):
-        stride = isz // osz
-        parts.append({
-            kind: {
-                "in_channels": ich,
-                "out_channels": och,
-                "stride": stride,
-            }
-        })
-    return parts
+    def add_stride(ich, och, isz, osz):
+        return {"stride": isz // osz}
+
+    return block(src_format, dest_format, num_downsamples, kind, pre_downsample=False, addl_args_fn=add_stride)
 
 
 def bottleneck_with_downsample(src_format, dest_format, num_downsamples):
+    if not is_imagelike(src_format, dest_format):
+        # Currently we only have bottleneck adapters for image-like formats.
+        return None
     return block_with_downsample(src_format, dest_format, num_downsamples, "ResNetBottleneck")
 
 
-# TODO: Remove the conv options for a ViT?
 STITCHERS = {
     "finetune": finetune_stitch,
     "linear_no_downsample": functools.partial(stitch_no_downsample, adapter_fn=linear),
@@ -448,6 +424,7 @@ def build_job_config(config, save_dir, assembly):
     jobcfg.pop("src_stages", None)
     jobcfg.pop("dest_stages", None)
     jobcfg.pop("gaps", None)
+    jobcfg.pop("stitchers", None)
     jobcfg["train_config"].pop("seed", None)
 
     jobcfg["assembly"] = assembly

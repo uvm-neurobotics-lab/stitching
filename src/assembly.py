@@ -157,13 +157,13 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
             raise RuntimeError(f"Target size should be either an int or a pair but got: {target_sz}")
 
     # Convert the size.
+    # FIXME: If we do a resize from BERT to BERT, we lose the extra class info, even though it would be easy to retain.
+    #        We should have a way to keep it.
     if target_sz is not None and cur_sz != target_sz:
         if cur_fmt != "img":
             x = TRANSFORM[(cur_fmt, "img")](x)
             cur_fmt = "img"
         # TODO: Use a different mode? "nearest"? Not sure. Could also consider align_corners=True.
-        #       Also worth considering whether to instead use MaxPool or Conv when downsampling. Conv would allow us to
-        #       learn weights of the interpolation.
         x = nn.functional.interpolate(x, target_sz, mode="bilinear")
 
     # Convert the format.
