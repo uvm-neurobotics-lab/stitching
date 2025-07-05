@@ -130,9 +130,9 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
     elif cur_fmt == "bhwc":
         cur_sz = tuple(x.shape[1:3])
     elif cur_fmt == "bert":
-        cur_sz = x.shape[1] - 1
+        cur_sz = to_square_img_size(x.shape[1] - 1)
     elif cur_fmt == "token":
-        cur_sz = x.shape[1]
+        cur_sz = to_square_img_size(x.shape[1])
     else:
         raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
 
