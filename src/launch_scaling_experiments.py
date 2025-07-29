@@ -3,6 +3,11 @@ A script to assemble a number of experiment configs and launch Slurm jobs to exe
 
 To test this script, try:
     python src/launch_scaling_experiments.py -c across-scales/resnet-50.yml --seed 12345 -n -vv
+
+To test one of the generated jobs locally, run:
+    python src/launch_scaling_experiments.py -c across-scales/resnet-50-vit-s.yml --lv --do-not-launch
+    cd experiments/across-scales/resnet-50-vit-s/train-resnet-50-vit-s-gap-1,1-adapter-downsample_then_bottleneck
+    python ../../../../src/stitch_train.py -c config.yml --st --device cpu -vv
 """
 import functools
 import logging
@@ -11,12 +16,13 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 import utils.argparsing as argutils
 import utils.datasets as datasets
 import utils.training as training
-from assembly import validate_part_list
+from assembly import to_square_img_size, validate_part_list
 from stitch_train import build_command
 from utils import ensure_config_param, make_pretty, _and, of_type
 from utils.slurm import call_sbatch
@@ -46,6 +52,14 @@ def get_tensor_shape_sequence(src_format, dest_format, num_downsamples):
     out_channels = dest_format[1][0]
     in_size = src_format[1][1]
     out_size = dest_format[1][1]
+    if is_imagelike(src_format) and not is_imagelike(dest_format) and len(dest_format[1]) < 3:
+        # Going from 2D image -> 1D sequence. Use the square root of the 1D sequence size to get the image H,W.
+        # Use the image-like sizes throughout.
+        out_size = to_square_img_size(out_size)[0]
+    if not is_imagelike(src_format) and is_imagelike(dest_format) and len(src_format[1]) < 3:
+        # Going from 1D sequence -> 2D image. Use the square root of the 1D sequence size to get the image H,W.
+        # Use the image-like sizes throughout.
+        in_size = to_square_img_size(in_size)[0]
     if out_channels >= in_channels:
         channels = [min(in_channels * (2 ** i), out_channels) for i in range(max(num_downsamples + 1, 2))]
     else:
@@ -145,8 +159,9 @@ def finetune_stitch(src_stages, dest_stages, gap):
     return assembly
 
 
-def is_imagelike(src_format, dest_format):
-    return src_format[0] in ("img", "bhwc") or dest_format[0] in ("img", "bhwc")
+def is_imagelike(*formats):
+    """ Return true if ANY of the given formats are image-like. """
+    return any(fmt[0] in ("img", "bhwc") for fmt in formats)
 
 
 def make_adapter_series(src_format, dest_format, num_downsamples, kind="SimpleAdapter", pre_downsample=True,
@@ -319,6 +334,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="Do not actually launch jobs, but only print out the equivalent commands that would be"
                              " launched.")
+    parser.add_argument("--do-not-launch", action="store_true",
+                        help="Do not actually launch jobs, but DO generate all the necessary configs.")
     parser.add_argument("--lv", "--launch-verbose", dest="launch_verbose", action="store_true",
                         help="Be verbose when launching the job (output all the launcher print statements).")
 
@@ -505,7 +522,11 @@ def setup_and_launch_jobs(config, args, launcher_args):
             # Launch the job.
             # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while
             #       using torchrun.
-            result += call_sbatch(command, args.launch_verbose, args.dry_run, env={"MKL_THREADING_LAYER": "GNU"})
+            result += call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch,
+                                  env={"MKL_THREADING_LAYER": "GNU"})
+            # It seems we need to manually flush to see printouts on the cluster.
+            sys.stdout.flush()
+            sys.stderr.flush()
 
     return result
 
