@@ -60,6 +60,10 @@ def get_tensor_shape_sequence(src_format, dest_format, num_downsamples):
         # Going from 1D sequence -> 2D image. Use the square root of the 1D sequence size to get the image H,W.
         # Use the image-like sizes throughout.
         in_size = to_square_img_size(in_size)[0]
+    if src_format[0] == "bert" and is_imagelike(dest_format):
+        # If we are going from a BERT-style input to an image-style input, the number of channels will be doubled to
+        # accept the special output token. See `assembly.bert2img()`.
+        in_channels *= 2
     if out_channels >= in_channels:
         channels = [min(in_channels * (2 ** i), out_channels) for i in range(max(num_downsamples + 1, 2))]
     else:
