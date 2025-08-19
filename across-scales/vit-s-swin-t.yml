@@ -1,72 +1,14 @@
 #
-# Use ResNet-50 and ViT-Small. There are no stages in ViT so stage boundaries are arbitrary there.
+# Stitch Swin-Tiny and ViT-Small. There are no stages in ViT so stage boundaries are arbitrary there.
 #
-# Available models from timm:
-#  - resnet50.a1_in1k:                                  80.4% (ResNet Strikes Back A1 recipe)
-#  - resnet50.fb_swsl_ig1b_ft_in1k (alt):               81.1% (SWSL Self-Supervised Pre-Training)
+# Available models:
 #  - vit_small_patch16_224.augreg_in1k:                 78.8% (Supervised method from "How to train your ViT")
 #  - vit_small_patch16_224.augreg_in21k_ft_in1k (alt):  81.4% (Self-supervised + fine-tuning from "How to train your ViT")
+#  - swin_t:                                            81.5% (Swin-Tiny)
+#  - swin_v2_t (alternative):                           82.1% (SwinV2-Tiny)
 #
 
 src_stages:
-  - Subnet:
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: x
-      block_output: layer1.0
-      in_format: img  # layer1.0 input is [64, 56, 56].
-      out_format: [img, [256, 56, 56]]
-  - Subnet:
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer1.1
-      block_output: layer1.2
-      in_format: [img, [256, 56, 56]]
-      out_format: [img, [256, 56, 56]]
-  - Subnet:  # Downsample block
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer2.0
-      block_output: layer2.0
-      in_format: [img, [256, 56, 56]]
-      out_format: [img, [512, 28, 28]]
-  - Subnet:
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer2.1
-      block_output: layer2.3
-      in_format: [img, [512, 28, 28]]
-      out_format: [img, [512, 28, 28]]
-  - Subnet:  # Downsample block
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer3.0
-      block_output: layer3.0
-      in_format: [img, [512, 28, 28]]
-      out_format: [img, [1024, 14, 14]]
-  - Subnet:
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer3.1
-      block_output: layer3.5
-      in_format: [img, [1024, 14, 14]]
-      out_format: [img, [1024, 14, 14]]
-  - Subnet:  # Downsample block
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer4.0
-      block_output: layer4.0
-      in_format: [img, [1024, 14, 14]]
-      out_format: [img, [2048, 7, 7]]
-  - Subnet:
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer4.1
-      block_output: fc
-      in_format: [img, [2048, 7, 7]]
-      out_format: vector
-
-dest_stages:
   - Subnet:
       backend: timm
       model_name: vit_small_patch16_224.augreg_in1k
@@ -122,6 +64,64 @@ dest_stages:
       block_input: blocks.10
       block_output: head
       in_format: [bert, [384, 196]]
+      out_format: vector
+
+dest_stages:
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: x
+      block_output: features.0
+      in_format: img
+      out_format: [bhwc, [96, 56, 56]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.1
+      block_output: features.1
+      in_format: [bhwc, [96, 56, 56]]
+      out_format: [bhwc, [96, 56, 56]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.2
+      block_output: features.2
+      in_format: [bhwc, [96, 56, 56]]
+      out_format: [bhwc, [192, 28, 28]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.3
+      block_output: features.3
+      in_format: [bhwc, [192, 28, 28]]
+      out_format: [bhwc, [192, 28, 28]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.4
+      block_output: features.4
+      in_format: [bhwc, [192, 28, 28]]
+      out_format: [bhwc, [384, 14, 14]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.5
+      block_output: features.5
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [384, 14, 14]]
+  - Subnet:  # Downsample block
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.6
+      block_output: features.6
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [768, 7, 7]]
+  - Subnet:
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.7
+      block_output: head
+      in_format: [bhwc, [768, 7, 7]]
       out_format: vector
 
 gaps: !include 4-stage-gaps.yml

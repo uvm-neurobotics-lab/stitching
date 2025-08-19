@@ -1,5 +1,5 @@
 #
-# Use the ResNet-50 and ViT-Small. There are no stages in ViT so stage boundaries are arbitrary there.
+# Use ResNet-50 and ViT-Small. There are no stages in ViT so stage boundaries are arbitrary there.
 #
 # Available models from timm:
 #  - resnet50.a1_in1k:                                  80.4% (ResNet Strikes Back A1 recipe)
