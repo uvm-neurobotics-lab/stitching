@@ -1,7 +1,7 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
-from typing import Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -12,27 +12,27 @@ import utils
 from utils.models import load_model, load_subnet
 
 
-def img2bhwc(x):
+def img2bhwc(x, **kwargs):
     return x.permute(0, 2, 3, 1)
 
 
-def bhwc2img(x):
+def bhwc2img(x, **kwargs):
     return x.permute(0, 3, 1, 2)
 
 
-def img2token(x):
+def img2token(x, **kwargs):
     # FIXME: Add position encoding??
     return x.flatten(2).transpose(1, 2)
 
 
-def token2img(x):
+def token2img(x, **kwargs):
     img_sz = int(np.sqrt(x.shape[1]))
     if x.shape[1] != img_sz ** 2:
         raise RuntimeError(f"Sequence length ({x.shape[1]}) must be a perfect square to transform to image format.")
     return x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
 
 
-def nonstrict_token2img(x):
+def nonstrict_token2img(x, **kwargs):
     """WARNING: Deprecated."""
     # Drop the extra tokens if there are any. We expect the number of tokens to be a perfect square, so we can map it
     # onto a square image format. But ViT, for instance, has an extra token.
@@ -42,7 +42,7 @@ def nonstrict_token2img(x):
     return x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
 
 
-def bert2img(x):
+def bert2img(x, **kwargs):
     """
     Transform from a BERT-style sequence representation: the leading token is a special slot reserved for output, and
     the rest of the sequence is the image patches (in row-major order).
@@ -53,14 +53,14 @@ def bert2img(x):
     out_token = x[:, 0, :]
     x = x[:, 1:, :]
     images = x.view(-1, img_sz, img_sz, x.shape[2]).permute(0, 3, 1, 2)
-    # Now broadcast the output token over (H x W) to create a special "channel".
+    # Now broadcast the class token over (H x W) to create a special "channel".
     # Reshape to [B, C, 1, 1] and broadcast to [B, C, H, W].
     out_img = out_token[:, :, None, None].expand(-1, -1, img_sz, img_sz)
     # Concatenate along the channel dimension
     return torch.cat([images, out_img], dim=1)  # [B, 2C, H, W]
 
 
-def img2bert(x):
+def img2bert(x, **kwargs):
     """
     Transform to a BERT-style sequence representation: the leading token is a special slot reserved for output, and
     the rest of the sequence is the image patches (in row-major order).
@@ -70,11 +70,19 @@ def img2bert(x):
            fixed operation, like averaging all the patch values.
     """
     x = x.flatten(2)
+
+    class_token_action = kwargs.get("class_token")
     # Add class/output token to beginning of sequence.
-    # This one simply adds a token consisting of all 1's.
-    x = torch.cat([torch.ones_like(x[:, :, 0:1]), x], dim=2)
-    # This one adds a token which is the average of all the other tokens.
-    # x = torch.cat([torch.mean(x, dim=2, keepdim=True), x], dim=2)
+    if (not class_token_action) or class_token_action == "zeros" or class_token_action == "zeroes":
+        # This one simply adds a token consisting of all 0's.
+        x = torch.cat([torch.zeros_like(x[:, :, 0:1]), x], dim=2)
+    elif class_token_action == "ones":
+        # This one simply adds a token consisting of all 1's.
+        x = torch.cat([torch.ones_like(x[:, :, 0:1]), x], dim=2)
+    elif class_token_action == "avg" or class_token_action == "mean":
+        # This one adds a token which is the average of all the other tokens.
+        x = torch.cat([torch.mean(x, dim=2, keepdim=True), x], dim=2)
+
     return x.transpose(1, 2)
 
 
@@ -93,14 +101,15 @@ TRANSFORM = {
     ("bert", "img"): bert2img,
     ("img", "token"): img2token,
     ("token", "img"): token2img,
-    ("bhwc", "bert"): lambda x: img2bert(bhwc2img(x)),
-    ("bert", "bhwc"): lambda x: img2bhwc(bert2img(x)),
-    ("bhwc", "token"): lambda x: img2token(bhwc2img(x)),
-    ("token", "bhwc"): lambda x: img2bhwc(token2img(x)),
+    ("bhwc", "bert"): lambda x, **kwargs: img2bert(bhwc2img(x, **kwargs), **kwargs),
+    ("bert", "bhwc"): lambda x, **kwargs: img2bhwc(bert2img(x, **kwargs), **kwargs),
+    ("bhwc", "token"): lambda x, **kwargs: img2token(bhwc2img(x, **kwargs), **kwargs),
+    ("token", "bhwc"): lambda x, **kwargs: img2bhwc(token2img(x, **kwargs), **kwargs),
 }
 
 
-def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[Union[str, Tuple]]):
+def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[Union[str, Tuple]],
+             reformat_options: Optional[Dict] = None):
     """
     Converts the given tensor from current format into desired format.
 
@@ -114,6 +123,7 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
         x: The tensor to transform.
         cur_fmt: The current format.
         target_fmt: The desired format.
+        reformat_options: Options to be passed along as kwargs to the transform function.
 
     Returns:
         torch.Tensor: The transformed tensor.
@@ -168,7 +178,7 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
 
     # Convert the format.
     if cur_fmt != target_fmt:
-        x = TRANSFORM[(cur_fmt, target_fmt)](x)
+        x = TRANSFORM[(cur_fmt, target_fmt)](x, **reformat_options)
 
     return x
 
@@ -296,8 +306,11 @@ class Assembly(nn.Module):
             config,
             head_cfg=None,
             input_shape=None,
+            reformat_options=None,  # FIXME: finish implementing BERT transform options
     ):
         super().__init__()
+        self.reformat_options = reformat_options
+
         if not validate_part_list(config):
             raise ValueError(f"Invalid part list config:\n{config}")
 
@@ -328,7 +341,7 @@ class Assembly(nn.Module):
     def trunk_forward(self, x):
         cur_fmt = "img"  # Currently, all inputs are known to be images.
         for part in self.parts:
-            x = reformat(x, cur_fmt, getattr(part, "in_fmt", None))  # Convert to the format requested by part.
+            x = reformat(x, cur_fmt, getattr(part, "in_fmt", None), self.reformat_options)  # Convert to the format requested by part.
             x = part(x)  # Execute the part.
             if isinstance(x, dict):  # If part is a GraphModule, we need to extract its output from a dict.
                 x = list(x.values())[0]

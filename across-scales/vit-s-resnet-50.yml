@@ -124,6 +124,8 @@ dest_stages:
       in_format: [img, [2048, 7, 7]]
       out_format: vector
 
+reformat_options:
+  class_token: avg
 gaps: !include 4-stage-gaps.yml
 stitchers: !include default-stitchers.yml
 

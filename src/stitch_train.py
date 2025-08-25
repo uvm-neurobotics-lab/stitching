@@ -231,7 +231,8 @@ def setup_and_train(parser, config):
                              num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
 
     logging.info("Constructing model.")
-    model = Assembly(config["assembly"], config.get("head"), input_shape=input_shape)
+    model = Assembly(config["assembly"], config.get("head"), input_shape=input_shape,
+                     reformat_options=config.get("reformat_options"))
     model.to(device)
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
