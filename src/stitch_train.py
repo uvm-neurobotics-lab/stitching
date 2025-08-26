@@ -53,7 +53,7 @@ def build_command(cluster, conda_env, config_path, seed, result_file, verbosity,
     # Find the script to run, relative to this file.
     target_script = SCRIPT_DIR / "stitch_train.py"
     assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
-    sbatch_script = SCRIPT_DIR.parent / ("hgtrain.sbatch" if cluster == "hgnodes" else "train.sbatch")
+    sbatch_script = SCRIPT_DIR.parent / ("train.sbatch" if cluster == "nvgpu" else "hgtrain.sbatch")
     assert sbatch_script.is_file(), f"SBATCH file ({sbatch_script}) not found or is not a file."
 
     # NOTE: We allow launching multiple different seeds from the same config, so supply these on the command line.
