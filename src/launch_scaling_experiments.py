@@ -329,7 +329,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("--deterministic", action="store_true", help="Use only deterministic algorithms.")
 
     # Other/Launcher Arguments
-    parser.add_argument("--cluster", metavar="NAME", default="nvgpu", choices=["nvgpu", "hgnodes"],
+    parser.add_argument("--cluster", metavar="NAME", default="nvgpu", choices=["nvgpu", "hgnodes", "gpu-test"],
                         help="The Slurm partition on which to launch eval jobs.")
     parser.add_argument("--conda-env", "--conda", "--env", metavar="NAME", default="stitch",
                         help="The Conda environment to activate before running the job.")
