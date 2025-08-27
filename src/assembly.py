@@ -178,6 +178,7 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
 
     # Convert the format.
     if cur_fmt != target_fmt:
+        reformat_options = {} if reformat_options is None else reformat_options
         x = TRANSFORM[(cur_fmt, target_fmt)](x, **reformat_options)
 
     return x
