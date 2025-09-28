@@ -1,0 +1,65 @@
+#
+# Replace ResNet-50 Stage 3 with Swin-Tiny Stage 3.
+#  - resnet50.a1_in1k:                            80.4% (ResNet Strikes Back A1 recipe)
+#  - resnet50.fb_swsl_ig1b_ft_in1k (alternative): 81.1% (SWSL Self-Supervised Pre-Training)
+#  - swin_t:                                      81.5% (Swin-Tiny)
+#  - swin_v2_t (alternative):                     82.1% (SwinV2-Tiny)
+#
+
+assembly:
+  - Subnet:
+      frozen: true
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: x
+      in_format: img
+      block_output: layer3.0
+      out_format:
+        - img
+        - - 1024
+          - 14
+          - 14
+  - ResNetBottleneck:
+      frozen: false
+      in_channels: 1024
+      out_channels: 384
+  - Subnet:
+      frozen: true
+      backend: pytorch
+      model_name: swin_t
+      block_input: features.5
+      block_output: features.5
+      in_format: [bhwc, [384, 14, 14]]
+      out_format: [bhwc, [384, 14, 14]]
+  - ResNetBottleneck:
+      frozen: false
+      in_channels: 384
+      out_channels: 1024
+  - Subnet:
+      frozen: true
+      backend: timm
+      model_name: resnet50.a1_in1k
+      block_input: layer4.0
+      in_format: [img, [1024, 14, 14]]
+      block_output: fc
+      out_format: vector
+
+deterministic: false
+eval_checkpoints: true
+save_checkpoints: false
+
+train_config:
+  batch_size: 256
+  data_augmentation: true
+  dataset: imagenet
+  epochs: 10
+  loss_fn: cross_entropy
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: 10
+    eta_min: 0.0
+  max_grad_norm: 0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.002
+    weight_decay: 0.05
