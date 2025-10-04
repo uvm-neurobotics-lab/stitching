@@ -52,6 +52,42 @@ def conv1x1(in_channels, out_channels, stride=1):
     return nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False)
 
 
+def fix_conv_init(m, mode='fan_out', nonlinearity='relu'):
+    """
+    Improved initialization of conv layers, rather than PyTorch default.
+    """
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode=mode, nonlinearity=nonlinearity)
+
+
+def init_identity(m):
+    """
+    Initialize weights of the given module to identity.
+
+    NOTE: Currently only applies to Linear and Conv modules. As far as I understand, all norm layers are already
+          initialized to identity.
+    """
+    if isinstance(m, nn.Linear):
+        # Identity: weight is identity matrix, bias is zero
+        if m.in_features == m.out_features:
+            nn.init.eye_(m.weight)
+        else:
+            # Not square, fallback to small random orthogonal
+            nn.init.orthogonal_(m.weight)
+        if m.bias is not None:
+            nn.init.zeros_(m.bias)
+
+    elif isinstance(m, nn.Conv2d):
+        # Conv2d: identity = Dirac delta kernel
+        # Only works if in_channels == out_channels
+        if m.in_channels == m.out_channels:
+            nn.init.dirac_(m.weight)
+        else:
+            nn.init.kaiming_uniform_(m.weight, a=1)
+        if m.bias is not None:
+            nn.init.zeros_(m.bias)
+
+
 class ResNetBasicBlock(nn.Module):
     expansion = 1
     __constants__ = ['downsample']
@@ -84,6 +120,11 @@ class ResNetBasicBlock(nn.Module):
         self.bn2 = norm_layer(out_channels)
         self.downsample = downsample
         self.stride = stride
+
+        self.apply(fix_conv_init)
+        # Set initial behavior to identity. This may help in cases where the adapter is not needed or only a very minor
+        # transformation is needed. It is also shown to improve ResNets generally in https://arxiv.org/abs/1706.02677.
+        nn.init.zeros_(self.bn2.weight)
 
     def forward(self, x):
         identity = x
@@ -135,6 +176,11 @@ class ResNetBottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
+
+        self.apply(fix_conv_init)
+        # Set initial behavior to identity. This may help in cases where the adapter is not needed or only a very minor
+        # transformation is needed. It is also shown to improve ResNets generally in https://arxiv.org/abs/1706.02677.
+        nn.init.zeros_(self.bn3.weight)
 
     def forward(self, x):
         identity = x
@@ -280,6 +326,7 @@ class SimpleAdapter(nn.Module):
                     cur_stride = 1
 
         self.adapter = nn.Sequential(*layers)
+        self.apply(partial(fix_conv_init, nonlinearity="leaky_relu"))
 
     def forward(self, x):
         return self.adapter(x)
