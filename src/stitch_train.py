@@ -114,6 +114,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("-j", "--workers", default=NUM_CORES, type=int, metavar="N",
                         help="Number of data loading workers. Defaults to the number of cores detected on the current "
                              "node.")
+    parser.add_argument("-e", "--epochs", default=10, type=int, metavar="N", help="Number of epochs to train.")
     parser.add_argument("-b", "--batch-size", default=32, type=int, metavar="N",
                         help="Mini-batch size. When distributed, the total batch size is (num GPUs * batch size).")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
@@ -185,8 +186,8 @@ def prep_config(parser, args):
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
     # This list governs which _training_ args can be overridden from the command line.
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
-                                                                 ["dataset", "seed", "batch_size", "max_batches",
-                                                                  "data_augmentation"])
+                                                                 ["dataset", "seed", "epochs", "batch_size",
+                                                                  "max_batches", "data_augmentation"])
 
     # Conduct a quick test.
     if args.smoke_test:
