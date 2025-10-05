@@ -89,6 +89,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("--print-freq", default=10, type=int, metavar="N", help="Print frequency.")
     parser.add_argument("--save-checkpoints", action="store_true",
                         help="Save the model weights at the end of each epoch.")
+    parser.add_argument("--checkpoint-initial-model", action="store_true",
+                        help="Evaluate the randomly-initialized model before any updates.")
     parser.add_argument("--no-eval-checkpoints", dest="eval_checkpoints", action="store_false",
                         help="Do not evaluate each checkpoint on the entire train/test set. This can speed up training"
                              " but the downside is that you will be relying on training batches only for tracking the"
@@ -174,10 +176,10 @@ def prep_config(parser, args):
 
     # This list governs which _top-level_ args can be overridden from the command line.
     config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
-                                                           "eval_checkpoints", "load_from", "resume_from",
-                                                           "start_epoch", "test_only", "save_dir", "metrics_output",
-                                                           "id", "project", "entity", "group", "device", "workers",
-                                                           "deterministic", "verbose"])
+                                                           "eval_checkpoints", "checkpoint_initial_model", "load_from",
+                                                           "resume_from", "start_epoch", "test_only", "save_dir",
+                                                           "metrics_output", "id", "project", "entity", "group",
+                                                           "device", "workers", "deterministic", "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
