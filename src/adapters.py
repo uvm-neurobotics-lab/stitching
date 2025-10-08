@@ -93,7 +93,7 @@ class ResNetBasicBlock(nn.Module):
     __constants__ = ['downsample']
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1, base_width=64, dilation=1,
-                 norm_type="bn", in_format=None):
+                 norm_type="bn", in_format=None, init_identity=True):
         super(ResNetBasicBlock, self).__init__()
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
@@ -124,7 +124,8 @@ class ResNetBasicBlock(nn.Module):
         self.apply(fix_conv_init)
         # Set initial behavior to identity. This may help in cases where the adapter is not needed or only a very minor
         # transformation is needed. It is also shown to improve ResNets generally in https://arxiv.org/abs/1706.02677.
-        nn.init.zeros_(self.bn2.weight)
+        if init_identity:
+            nn.init.zeros_(self.bn2.weight)
 
     def forward(self, x):
         identity = x
@@ -150,7 +151,7 @@ class ResNetBottleneck(nn.Module):
     __constants__ = ['downsample']
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None, groups=1, base_width=64, dilation=1,
-                 norm_type="bn", in_format=None):
+                 norm_type="bn", in_format=None, init_identity=True):
         super(ResNetBottleneck, self).__init__()
         if norm_type not in NORM_MAPPING:
             raise ValueError(f"Norm type not recognized: '{norm_type}'.")
@@ -180,7 +181,8 @@ class ResNetBottleneck(nn.Module):
         self.apply(fix_conv_init)
         # Set initial behavior to identity. This may help in cases where the adapter is not needed or only a very minor
         # transformation is needed. It is also shown to improve ResNets generally in https://arxiv.org/abs/1706.02677.
-        nn.init.zeros_(self.bn3.weight)
+        if init_identity:
+            nn.init.zeros_(self.bn3.weight)
 
     def forward(self, x):
         identity = x
