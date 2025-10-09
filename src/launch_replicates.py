@@ -36,7 +36,7 @@ def create_arg_parser(desc, allow_abbrev=True):
     parser.add_argument("--orig-seed", type=int, default=12345, help="The seed of the first replicate.")
 
     # Launcher Arguments
-    parser.add_argument("--cluster", metavar="NAME", default="nvgpu", choices=["nvgpu", "hgnodes", "gpu-test"],
+    parser.add_argument("--nodes", metavar="NAME", default="v100", choices=["v100", "h100", "h200"],
                         help="The Slurm partition on which to launch eval jobs.")
     parser.add_argument("--conda-env", "--conda", "--env", metavar="NAME", default="stitch",
                         help="The Conda environment to activate before running the job.")
@@ -89,7 +89,7 @@ def scan_and_launch(args, launcher_args):
                 continue
 
         # Get the launch command.
-        command = build_command(args.cluster, args.conda_env, CFG_FILENAME, args.seed, res_fname, args.verbose,
+        command = build_command(args.nodes, args.conda_env, CFG_FILENAME, args.seed, res_fname, args.verbose,
                                 launcher_args)
 
         # Launch the job.

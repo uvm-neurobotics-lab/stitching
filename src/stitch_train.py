@@ -33,12 +33,12 @@ if hasattr(os, "sched_getaffinity"):
     NUM_CORES = len(os.sched_getaffinity(0))
 
 
-def build_command(cluster, conda_env, config_path, seed, result_file, verbosity, launcher_args):
+def build_command(hardware, conda_env, config_path, seed, result_file, verbosity, launcher_args):
     """
     Builds an `sbatch` call suitable for launching this script on a Slurm cluster. Once built, the command can be
     passed to `utils.slurm.call_sbatch()`.
     Args:
-        cluster: Name of the partition to launch on (actually this just maps to the pre-baked sbatch scripts in the
+        hardware: The type of hardware to launch on (actually this just maps to the pre-baked sbatch scripts in the
                  same directory as this script, and is specifically based on UVM's Slurm cluster).
         conda_env: The name of the conda environment to activate before running the script.
         config_path: The path of the config to pass to --config.
@@ -53,7 +53,15 @@ def build_command(cluster, conda_env, config_path, seed, result_file, verbosity,
     # Find the script to run, relative to this file.
     target_script = SCRIPT_DIR / "stitch_train.py"
     assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
-    sbatch_script = SCRIPT_DIR.parent / ("train.sbatch" if cluster == "nvgpu" else "hgtrain.sbatch")
+    if hardware == "v100":
+        sbatch_filename = "nvtrain.sbatch"
+    elif hardware == "h100":
+        sbatch_filename = "hgtrain.sbatch"
+    elif hardware == "h200":
+        sbatch_filename = "h2train.sbatch"
+    else:
+        raise RuntimeError(f"Unrecognized hardware: {hardware}")
+    sbatch_script = SCRIPT_DIR.parent / sbatch_filename
     assert sbatch_script.is_file(), f"SBATCH file ({sbatch_script}) not found or is not a file."
 
     # NOTE: We allow launching multiple different seeds from the same config, so supply these on the command line.
