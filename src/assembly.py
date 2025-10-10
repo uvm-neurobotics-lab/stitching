@@ -272,7 +272,7 @@ def part_class_from_name(cls_name):
     elif cls_name in globals():
         return globals()[cls_name]
     else:
-        raise RuntimeError(f"Assembly part class not found: '{cls_name}'")
+        raise RuntimeError(f"Part class not found: '{cls_name}'")
 
 
 def part_from_config(part_cfg):
@@ -286,6 +286,32 @@ def part_from_config(part_cfg):
     return PartClass(**args)
 
 
+def model_from_config(config, input_shape=None):
+    """
+    Instantiate a network from a config specifying one or more "parts".
+
+    Args:
+        config: The config where we can find a "model" or "assembly" subconfig.
+        input_shape: (Optional) The size of the input tensor that the model can expect, different for different
+            datasets. If using the "model" config format, this must be specified in config manually (most assembly
+            configs are not flexible enough to allow different sizes anyhow).
+    Returns:
+        nn.Module: A callable model.
+    """
+    if "assembly" in config and "model" in config:
+        raise RuntimeError('You may only specify one of "assembly" or "model".')
+    elif "assembly" in config:
+        # Slightly deprecated; this parses an older config format.
+        return Assembly(config["assembly"], config.get("head"), input_shape=input_shape,
+                        reformat_options=config.get("reformat_options"))
+    elif "model" in config:
+        # "model" is the new config item, preferred over "assembly". This allows us to use any type of part at the top
+        # level, not just Assembly.
+        return part_from_config(config["model"])
+    else:
+        raise RuntimeError(f"Model config not found. Config needs either 'model' or 'assembly' keys.")
+
+
 def freeze(part):
     for param in part.parameters():
         param.requires_grad = False
@@ -296,28 +322,28 @@ class Assembly(nn.Module):
     A class which takes a list of blocks and a list of adapters and assembles them all in a sequence.
 
     The user can choose to leave out the adapters if they only want to use blocks (this assumes all blocks'
-    inputs/outputs are compatible with each other). Also provides options for adding a prescribed block at the beginning
+    inputs/outputs are compatible with each other). Also provides an option for adding a prescribed block at the end
     of the model.
 
-    This is based in part on Deep Model Reassembly:
+    This is partly inspired by Deep Model Reassembly:
     https://github.com/Adamdad/DeRy/blob/main/mmcls_addon/models/backbones/dery.py
     """
 
     def __init__(
             self,
-            config,
-            head_cfg=None,
+            parts,
+            head=None,
             input_shape=None,
             reformat_options=None,  # FIXME: finish implementing BERT transform options
     ):
         super().__init__()
         self.reformat_options = reformat_options
 
-        if not validate_part_list(config):
-            raise ValueError(f"Invalid part list config:\n{config}")
+        if not validate_part_list(parts):
+            raise ValueError(f"Invalid part list config:\n{parts}")
 
         part_list = []
-        for c in config:
+        for c in parts:
             part = part_from_config(c)
             part_list.append(part)
             part_args = next(iter(c.values()))
@@ -325,16 +351,16 @@ class Assembly(nn.Module):
                 freeze(part)
         self.parts = nn.ModuleList(part_list)
 
-        if head_cfg:
+        if head:
             if not input_shape:
                 raise ValueError("To use a classifier head, you must specify the expected input shape.")
-            if not isinstance(head_cfg, dict) or len(head_cfg) > 1:
-                raise ValueError(f"Unrecognized head config format: {head_cfg}."
+            if not isinstance(head, dict) or len(head) > 1:
+                raise ValueError(f"Unrecognized head config format: {head}."
                                  " Should consist of a single class with args.")
             output_shape = utils.calculate_output_shape(self.trunk_forward, input_shape)
-            head_args = next(iter(head_cfg.values()))
+            head_args = next(iter(head.values()))
             head_args["input_shape"] = output_shape
-            self.head = part_from_config(head_cfg)
+            self.head = part_from_config(head)
             if head_args.get("frozen"):
                 freeze(self.head)
         else:

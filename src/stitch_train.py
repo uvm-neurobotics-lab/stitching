@@ -20,7 +20,7 @@ import utils.argparsing as argutils
 import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
-from assembly import Assembly, validate_part, validate_part_list
+from assembly import model_from_config, validate_part, validate_part_list
 from utils import as_strings, ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
 
 # Get the resolved path of this script, before we switch directories.
@@ -165,8 +165,16 @@ def validate_config(config):
     logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
 
     # First check values for constructing the model.
-    ensure_config_param(config, "assembly", _and(of_type(list), validate_part_list))
-    ensure_config_param(config, "head", _and(of_type(dict), validate_part), required=False)
+    if "assembly" in config and "model" in config:
+        raise RuntimeError('You may only specify one of "assembly" or "model".')
+    elif "assembly" in config:
+        # Slightly deprecated; this parses an older config format.
+        ensure_config_param(config, "assembly", _and(of_type(list), validate_part_list))
+        ensure_config_param(config, "head", _and(of_type(dict), validate_part), required=False)
+        ensure_config_param(config, "reformat_options", of_type(dict), required=False)
+    else:
+        # "model" is the new config item, preferred over "assembly".
+        ensure_config_param(config, "model", of_type(dict))
 
     # Now check values related to training the model.
     datasets.check_data_config(config)
@@ -242,8 +250,7 @@ def setup_and_train(parser, config):
                              num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
 
     logging.info("Constructing model.")
-    model = Assembly(config["assembly"], config.get("head"), input_shape=input_shape,
-                     reformat_options=config.get("reformat_options"))
+    model = model_from_config(config, input_shape)
     model.to(device)
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 

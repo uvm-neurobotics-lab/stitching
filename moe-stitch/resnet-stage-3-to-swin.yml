@@ -6,43 +6,46 @@
 #  - swin_v2_t (alternative):                     82.1% (SwinV2-Tiny)
 #
 
-assembly:
-  - Subnet:
-      frozen: true
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: x
-      in_format: img
-      block_output: layer3.0
-      out_format:
-        - img
-        - - 1024
-          - 14
-          - 14
-  - ResNetBottleneck:
-      frozen: false
-      in_channels: 1024
-      out_channels: 384
-  - Subnet:
-      frozen: true
-      backend: pytorch
-      model_name: swin_t
-      block_input: features.5
-      block_output: features.5
-      in_format: [bhwc, [384, 14, 14]]
-      out_format: [bhwc, [384, 14, 14]]
-  - ResNetBottleneck:
-      frozen: false
-      in_channels: 384
-      out_channels: 1024
-  - Subnet:
-      frozen: true
-      backend: timm
-      model_name: resnet50.a1_in1k
-      block_input: layer4.0
-      in_format: [img, [1024, 14, 14]]
-      block_output: fc
-      out_format: vector
+model:
+  Assembly:
+    input_shape: [3, 224, 224]
+    parts:
+      - Subnet:
+          frozen: true
+          backend: timm
+          model_name: resnet50.a1_in1k
+          block_input: x
+          in_format: img
+          block_output: layer3.0
+          out_format:
+            - img
+            - - 1024
+              - 14
+              - 14
+      - ResNetBottleneck:
+          frozen: false
+          in_channels: 1024
+          out_channels: 384
+      - Subnet:
+          frozen: true
+          backend: pytorch
+          model_name: swin_t
+          block_input: features.5
+          block_output: features.5
+          in_format: [bhwc, [384, 14, 14]]
+          out_format: [bhwc, [384, 14, 14]]
+      - ResNetBottleneck:
+          frozen: false
+          in_channels: 384
+          out_channels: 1024
+      - Subnet:
+          frozen: true
+          backend: timm
+          model_name: resnet50.a1_in1k
+          block_input: layer4.0
+          in_format: [img, [1024, 14, 14]]
+          block_output: fc
+          out_format: vector
 
 deterministic: false
 eval_checkpoints: true
