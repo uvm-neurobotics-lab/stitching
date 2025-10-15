@@ -6,7 +6,7 @@
 #SBATCH --job-name=stitch
 #SBATCH --time=10:00:00
 #SBATCH --partition=nvgpu
-#SBATCH --exclude=gpunode001,gpunode002
+#SBATCH --constraint=v100
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
