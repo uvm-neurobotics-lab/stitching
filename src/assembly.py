@@ -1,7 +1,8 @@
 """
 A class for assembling blocks and adapters into a single module.
 """
-from typing import Dict, Optional, Tuple, Union
+import inspect
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -108,8 +109,30 @@ TRANSFORM = {
 }
 
 
-def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[Union[str, Tuple]],
-             reformat_options: Optional[Dict] = None):
+def parse_format_from_tensor(x, cur_fmt):
+    if not isinstance(cur_fmt, str):
+        cur_fmt, _ = cur_fmt  # Current size is ignored, b/c we just use the size of the tensor.
+
+    if cur_fmt == "img":
+        cur_ch = x.shape[1]
+        cur_sz = tuple(x.shape[2:])
+    elif cur_fmt == "bhwc":
+        cur_ch = x.shape[3]
+        cur_sz = tuple(x.shape[1:3])
+    elif cur_fmt == "bert":
+        cur_ch = x.shape[2]
+        cur_sz = to_square_img_size(x.shape[1] - 1)
+    elif cur_fmt == "token":
+        cur_ch = x.shape[2]
+        cur_sz = to_square_img_size(x.shape[1])
+    else:
+        raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
+
+    return cur_fmt, cur_ch, cur_sz
+
+
+def reformat(x: torch.Tensor, cur_fmt: Union[str, tuple, list], target_fmt: Optional[Union[str, tuple, list]],
+             reformat_options: Optional[dict] = None):
     """
     Converts the given tensor from current format into desired format.
 
@@ -128,27 +151,16 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
     Returns:
         torch.Tensor: The transformed tensor.
     """
-    # Parse inputs.
     if not target_fmt:
         # If no target format is requested, then we can just keep the same format.
         return x
 
-    if not isinstance(cur_fmt, str):
-        cur_fmt, _ = cur_fmt  # Current size is ignored, b/c we just use the size of the tensor.
-    if cur_fmt == "img":
-        cur_sz = tuple(x.shape[2:])
-    elif cur_fmt == "bhwc":
-        cur_sz = tuple(x.shape[1:3])
-    elif cur_fmt == "bert":
-        cur_sz = to_square_img_size(x.shape[1] - 1)
-    elif cur_fmt == "token":
-        cur_sz = to_square_img_size(x.shape[1])
-    else:
-        raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
+    # Parse inputs.
+    cur_fmt, cur_ch, cur_sz = parse_format_from_tensor(x, cur_fmt)
 
-    if isinstance(target_fmt, str):
-        target_sz = None
-    else:
+    target_ch = None
+    target_sz = None
+    if not isinstance(target_fmt, str):
         target_fmt, target_sz = target_fmt
         if isinstance(target_sz, int):
             # If a 1D size is requested, determine the equivalent square image size.
@@ -158,15 +170,21 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
                 # If format is image-like, then assume this is [H, W].
                 target_sz = tuple(int(s) for s in target_sz)
             else:
-                # If format is sequence-like, then assume this is [C, H*W]. Drop the C and get a 2D size.
+                # If format is sequence-like, then assume this is [C, H*W]. Extract the C and get a 2D size.
+                target_ch = target_sz[0]
                 target_sz = to_square_img_size(target_sz[1])
         elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 3:
-            # If we have 3 values, they must be in [C, H, W] format. Just take the spatial values.
+            # If we have 3 values, they must be in [C, H, W] format. Split up the channel and spatial values.
+            target_ch = target_sz[0]
             target_sz = tuple(int(s) for s in target_sz[1:])
         else:
             raise RuntimeError(f"Target size should be either an int or a pair but got: {target_sz}")
 
     reformat_options = {} if reformat_options is None else reformat_options
+
+    # Ensure number of channels is expected.
+    if cur_ch and target_ch and (cur_ch != target_ch):
+        raise RuntimeError(f"Current channels ({cur_ch}) and target channels ({target_ch}) do not match.")
 
     # Convert the size.
     # FIXME: If we do a resize from BERT to BERT, we lose the extra class info, even though it would be easy to retain.
@@ -175,7 +193,6 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
         if cur_fmt != "img":
             x = TRANSFORM[(cur_fmt, "img")](x, **reformat_options)
             cur_fmt = "img"
-        # TODO: Use a different mode? "nearest"? Not sure. Could also consider align_corners=True.
         x = nn.functional.interpolate(x, target_sz, mode="bilinear")
 
     # Convert the format.
@@ -183,6 +200,55 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, Tuple], target_fmt: Optional[U
         x = TRANSFORM[(cur_fmt, target_fmt)](x, **reformat_options)
 
     return x
+
+
+def get_in_fmt(part, dflt=None):
+    ret = getattr(part, "in_fmt", dflt)
+    return dflt if ret is None else ret
+
+
+def get_out_fmt(part, dflt=None):
+    ret = getattr(part, "out_fmt", dflt)
+    return dflt if ret is None else ret
+
+
+def part_forward(part, x, cur_fmt, reformat_options=None, part_index=None):
+    """
+    Run the forward pass of the given part, using the given input `x`. This function enables tracking of the format of
+    input `x`, and automatic reformatting to conform to the constraints of the `part`. It returns both the updated `x`
+    and the updated format object.
+
+    Args:
+        part: The module to run.
+        x: The input to the module.
+        cur_fmt: The current known format of the input.
+        reformat_options: Options to be forwarded to `reformat()`.
+        part_index: The index of the given part, if applicable.
+
+    Returns:
+        torch.Tensor: The new output.
+        tuple: New format description corresponding to the output tensor.
+    """
+    try:  # Main function body.
+
+        x = reformat(x, cur_fmt, get_in_fmt(part), reformat_options)  # Convert to the format requested by part.
+        # The part may have support for built-in format-tracking. (E.g., if we have nested Assemblies.) In which
+        # case, we do not need to update the format manually.
+        if "cur_fmt" in inspect.signature(part.forward).parameters:
+            x, cur_fmt = part(x, cur_fmt)  # Execute the part.
+        else:
+            x = part(x)  # Execute the part.
+            cur_fmt = get_out_fmt(part, cur_fmt)  # Update the format; if None, then format is unchanged.
+        if isinstance(x, dict):  # If part is a GraphModule, we need to extract its output from a dict.
+            x = list(x.values())[0]
+        return x, cur_fmt
+
+    except Exception as e:  # Wrapper just to inform the user where the error occurred, if applicable.
+        if part_index is None:
+            raise
+        else:
+            raise RuntimeError(f"Error in the part at index {part_index}. This can be a fault in the part itself, or "
+                               f"in reformatting just prior to this part. Error:\n{str(e)}")
 
 
 class Net(nn.Module):
@@ -366,22 +432,103 @@ class Assembly(nn.Module):
         else:
             self.head = None
 
-    def trunk_forward(self, x):
-        cur_fmt = "img"  # Currently, all inputs are known to be images.
-        for part in self.parts:
-            x = reformat(x, cur_fmt, getattr(part, "in_fmt", None), self.reformat_options)  # Convert to the format requested by part.
-            x = part(x)  # Execute the part.
-            if isinstance(x, dict):  # If part is a GraphModule, we need to extract its output from a dict.
-                x = list(x.values())[0]
-            out_fmt = getattr(part, "out_fmt", None)  # Update the format; if None, then format is unchanged.
-            if out_fmt is not None:
-                cur_fmt = out_fmt
+        self.in_fmt = get_in_fmt(self.parts[0])
+        self.out_fmt = get_out_fmt(self.head) if self.head else get_out_fmt(self.parts[0])
 
+    def trunk_forward(self, x, cur_fmt=None):
+        if cur_fmt is None:
+            cur_fmt = "img"  # Assume this is the very first input, therefore it is an image.
+        for i, part in enumerate(self.parts):
+            x, cur_fmt = part_forward(part, x, cur_fmt, self.reformat_options, i)
         return x, cur_fmt
 
-    def forward(self, x):
-        x, cur_fmt = self.trunk_forward(x)
+    def forward(self, x, cur_fmt=None):
+        # If `cur_fmt` is passed to us, then we should also return it. Otherwise, act like we have one input/output.
+        fmt_desired = (cur_fmt is not None)
+        x, cur_fmt = self.trunk_forward(x, cur_fmt)
         if self.head:
-            x = reformat(x, cur_fmt, getattr(self.head, "in_fmt", None))  # Convert to the format requested by head.
-            x = self.head(x)
-        return x
+            x, cur_fmt = part_forward(self.head, x, cur_fmt, self.reformat_options)
+        return (x, cur_fmt) if fmt_desired else x
+
+
+class ParallelPart(nn.Module):
+    """
+    A class which takes a list of blocks and assembles them in parallel (rather than in series, like the Assembly).
+
+    This can be used as a sub-part of an Assembly, and can also have Assemblies as sub-parts of itself.
+    """
+
+    def __init__(
+            self,
+            parts,
+            agg,
+            in_format=None,
+            out_format=None,
+            reformat_options=None,
+    ):
+        super().__init__()
+        self.agg = agg
+        self.in_fmt = in_format
+        self.out_fmt = out_format
+        if len(out_format) != 2 or len(out_format[1]) != 3:
+            raise RuntimeError("Output format must be fully specified for ParallelAdapter. "
+                               f"Instead we got: {out_format}")
+        self.reformat_options = reformat_options
+
+        if not validate_part_list(parts):
+            raise ValueError(f"Invalid part list config:\n{parts}")
+
+        part_list = []
+        for c in parts:
+            part = part_from_config(c)
+            part_list.append(part)
+            part_args = next(iter(c.values()))
+            if part_args is not None and part_args.get("frozen"):
+                freeze(part)
+        self.parts = nn.ModuleList(part_list)
+
+    def forward(self, x, cur_fmt=None):
+        if cur_fmt is None:
+            cur_fmt = "img"  # Assume this is the very first input, therefore it is an image.
+
+        # Run all the parallel parts.
+        # NOTE: In theory this loop could be parallelized, in the future. Only useful if model parallelism is used.
+        results = []
+        for i, part in enumerate(self.parts):
+            results.append(list(part_forward(part, x, cur_fmt, self.reformat_options, i)))
+
+        # Now aggregate the parts together.
+        if self.agg == "avg":
+
+            # Convert all results to the final expected output format.
+            for i, res in enumerate(results):
+                res[0] = reformat(res[0], res[1], self.out_fmt, self.reformat_options)
+
+            # Now combine them by mean.
+            x = torch.stack([r[0] for r in results]).mean(dim=0)
+
+        elif self.agg == "concat":
+
+            # Convert formats and ensure number of channels adds up to the expected amount.
+            total_channels = 0
+            for i, res in enumerate(results):
+                # Count the number of channels in each output.
+                _, num_channels, _ = parse_format_from_tensor(*res)
+                total_channels += num_channels
+                # Ensure that everything other than the channels are converted to the expected format.
+                target_fmt = [self.out_fmt[0], self.out_fmt[1][1:]]  # Drop channels from target format.
+                res[0] = reformat(res[0], res[1], target_fmt, self.reformat_options)
+            if total_channels != self.out_fmt[1][0]:
+                msg = (f"Expected the total number of channels to be {self.out_fmt[1][0]}, but instead got "
+                       f"{total_channels}. Results:")
+                for res in results:
+                    msg += f"\nShape={res[0].shape}, Format={res[1]}"
+                raise RuntimeError(msg)
+
+            # Now we can stack the outputs on the channel dimension.
+            x = torch.concat([r[0] for r in results], dim=1)
+
+        else:
+            raise RuntimeError(f"Unrecognized aggregation function: {self.agg}")
+
+        return x, self.out_fmt
