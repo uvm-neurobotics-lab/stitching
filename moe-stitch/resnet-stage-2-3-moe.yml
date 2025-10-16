@@ -24,7 +24,7 @@ model:
     # STAGE 2
     - ParallelPart:
         agg: concat
-        out_format: [img, [760, 28, 28]]  # 760 = (512 + 192 + 56)
+        out_format: [img, [744, 28, 28]]  # 744 = (512 + 192 + 40)
         parts:
         - Assembly:  # ResNet
             parts:
@@ -70,7 +70,7 @@ model:
                 out_format: [img, [40, 28, 28]]
     - ResNetBottleneck:
         frozen: false
-        in_channels: 760
+        in_channels: 744
         out_channels: 1024
         # out_format: [img, [1024, 28, 28]]
     # STAGE 3
