@@ -9,7 +9,7 @@
 #SBATCH --constraint=h200
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=40
 #SBATCH --gpus-per-task=2
 #SBATCH --mem=120G
 
