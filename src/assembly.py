@@ -184,7 +184,12 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, tuple, list], target_fmt: Opti
 
     # Ensure number of channels is expected.
     if cur_ch and target_ch and (cur_ch != target_ch):
-        raise RuntimeError(f"Current channels ({cur_ch}) and target channels ({target_ch}) do not match.")
+        error = True
+        # Exception: if going from BERT to image, we will double the number of channels due to the special class token.
+        if cur_fmt == "bert" and target_fmt == "img" and ((2 * cur_ch) == target_ch):
+            error = False
+        if error:
+            raise RuntimeError(f"Current channels ({cur_ch}) and target channels ({target_ch}) do not match.")
 
     # Convert the size.
     # FIXME: If we do a resize from BERT to BERT, we lose the extra class info, even though it would be easy to retain.
