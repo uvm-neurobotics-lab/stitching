@@ -9,6 +9,7 @@ dependencies:
   - seaborn
   - tqdm
   - pytest
+  - scipy
   - tabulate
   - torchtnt  # only for FLOP counts in the analysis notebooks
   - wandb  # optional
