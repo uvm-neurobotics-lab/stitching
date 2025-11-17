@@ -1,6 +1,10 @@
-# Neural Network Stitching
+# Bridging Large Gaps in Neural Network Representations with Model Stitching
 
-What is possible with neural network stitching?
+This is the code repository for the paper published in the UniReps Workshop @ NeurIPS 2025: **Neil Traft and Nick
+Cheney. "Bridging Large Gaps in Neural Network Representations with Model Stitching".** (link forthcoming)
+
+**What is possible with neural network stitching?** In this work, we empirically investigate whether very structurally
+different layers can be stitched together, and suggest some new techniques for doing so.
 
 # Setup
 
@@ -26,23 +30,54 @@ ln -s ~/datasets ./data
 
 # Organization
 
-Configuration and output of all experiments will live in the `experiments/` folder.
+- The executable for a single stitching job is [`src/stitch_train.py`](src/stitch_train.py).
+  - Example configs can be found in [`tests/`](tests).
+- The script to reproduce our experiments by launching an array of stitching jobs is
+  [`src/launch_scaling_experiments.py`](src/launch_scaling_experiments.py) (but this requires access to a Slurm cluster).
+  - Example configs can be found in [`across-scales/`](across-scales).
+  - Unfortunately it would take quite a lot of Slurm jobs to fully reproduce our results. But hopefully this code at
+    least gives some clarity as to how it works.
+- Once all experimental results were generated, we used [`src/across-scales.ipynb`](src/across-scales.ipynb) to
+  post-process the results and generate all our plots.
 
-For now, each experiment will consist of the stitching of two networks. For initial experiments, instead of stitching
-two separate networks we will first knock out some layer(s) of a single network and replace them with new stitching
-layer(s). Organization will be as follows:
- - `experiments/`
-   - `<project name>/`
-     - `<experiment name>/`
-       - `config.yml`
-       - `traj.pkl`
+# Run a Stitching Job
 
-Where `config.yml` is the experiment configuration and `traj.pkl` is a pickled Pandas dataframe describing the
-stitch training trajectory.
+To test model stitching, you can run [`src/stitch_train.py`](src/stitch_train.py).
+  - This will run a single stitching job. See examples at the top of the file.
+  - It will generate a pickled dataframe (`result.pkl`) which logs each training step, and (optionally) model checkpoints. 
+  - See [`tests/`](tests) for a list of example configs that can be executed with `stitch_train.py`. This will give you
+    a sense for the wide range of possible configurations.
+    - You can even train models from scratch instead of stitching pre-trained models (see
+      [`tests/train-resnet18.yml`](tests/train-resnet18.yml)).
 
-# Experimental Procedure
-
+A single stitching job consists of the following steps:
  1. Load a configured set of subnets using [`utils.subgraphs.create_sub_network()`](src/utils/subgraphs.py).
  1. Construct a network with configured stitching modules in between each subnet.
  1. Train the stitching module(s) for a configured number of epochs using a configured optimizer.
- 1. Write the training trajectory to a dataframe on disk.
+ 1. Write the training trajectory to a dataframe on disk (`result.pkl`).
+
+We recommend you create a subfolder `experiments/<my-experiment-name>` for each experiment. Copy the config here and
+edit as needed. Then, run from this folder (e.g., `python ../../src/stitch_train.py -c ./config.yml`). This means the
+results and all checkpoints will be neatly packaged together with the config that was used to generate them.
+
+You can also run on a Slurm cluster, by customizing one of our example `*.sbatch` files. From the experiment folder,
+run `sbatch /<full-path-to>/stitching/nvtrain.sbatch stitchup /<full-path-to>/stitching/src/stitch_train.py --config config.yml`.
+
+# Run a Sweep Over Stitching Gaps and Adapters
+
+Each config in [`across-scales/`](across-scales) defines all the jobs for a single pair of architectures. The two given
+architectures (`src_stages` and `dest_stages`) are stitched in a number of different ways. A Slurm job is launched for
+each different way. See examples at the top of [`src/launch_scaling_experiments.py`](src/launch_scaling_experiments.py).
+
+# Citation
+
+If you use this work, please cite as:
+```
+@inproceedings{traft2025bridging,
+  title={Bridging Large Gaps in Neural Network Representations with Model Stitching},
+  author={Traft, Neil and Cheney, Nick},
+  booktitle={Proceedings of UniReps: the Third Edition of the Workshop on Unifying Representations in Neural Models},
+  year={2025},
+  organization={PMLR}
+}
+```
