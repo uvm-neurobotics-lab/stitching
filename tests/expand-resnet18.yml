@@ -1,5 +1,5 @@
 #
-# This config attempts to expand a ResNet-18 by adding a new block after every existing block.
+# This config attempts to expand a ResNet-18 by adding a new block after each stage.
 #
 # For reference, different versions of ResNet-18 available are:
 #  - resnet18.fb_swsl_ig1b_ft_in1k:    73.3% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
