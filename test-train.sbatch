@@ -1,17 +1,16 @@
 #!/bin/bash
 
-# To launch, run "sbatch train.sbatch stitch src/stitch_train.py -c tests/stitch-resnet18.yml" or similar.
-# Ensure the job's batch size is configured appropriately for 2 GPU, or change the number of GPU accordingly.
+# To launch, run "sbatch test-train.sbatch stitch src/stitch_train.py -c tests/stitch-resnet18.yml" or similar.
+# Ensure the job's batch size is configured appropriately for 1 GPU.
 
-#SBATCH --job-name=stitch
-#SBATCH --time=12:00:00
-#SBATCH --partition=nvgpu
-#SBATCH --constraint=v100
+#SBATCH --job-name=stitch-test
+#SBATCH --time=3:00:00
+#SBATCH --partition=gpu-debug
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gpus-per-task=2
-#SBATCH --mem=120G
+#SBATCH --cpus-per-task=4
+#SBATCH --gpus-per-task=1
+#SBATCH --mem=75G
 
 if [[ "$SLURM_JOB_NUM_NODES" -ne 1 && "$SLURM_JOB_NUM_NODES" -ne "$SLURM_NTASKS" ]]; then
     echo "Error: unfortunately, --ntasks ($SLURM_NTASKS) and --nodes ($SLURM_JOB_NUM_NODES) must be equal."
