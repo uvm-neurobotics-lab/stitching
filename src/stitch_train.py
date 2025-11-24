@@ -203,7 +203,17 @@ def prep_config(parser, args):
     # This list governs which _training_ args can be overridden from the command line.
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
                                                                  ["dataset", "seed", "epochs", "batch_size",
-                                                                  "max_batches", "data_augmentation"])
+                                                                  "max_batches"])
+    # Legacy support for older configs: move "data_augmentation" to be a sub-field of "data_preprocessing":
+    if "data_augmentation" in config["train_config"]:
+        config["train_config"].setdefault("data_preprocessing", {})
+        if "data_augmentation" in config["train_config"]["data_preprocessing"]:
+            parser.error(f'Conflict: there are two "data_augmentation" fields found in the config: {args.config}')
+        config["train_config"]["data_preprocessing"]["data_augmentation"] = config["train_config"]["data_augmentation"]
+        del config["train_config"]["data_augmentation"]
+    # Finally, we have a list of which _data augmentation_ args can be overridden from the command line.
+    config["train_config"]["data_preprocessing"] = argutils.override_from_command_line(
+        config["train_config"].get("data_preprocessing", {}), parser, args, ["image_size", "data_augmentation"])
 
     # Conduct a quick test.
     if args.smoke_test:

@@ -1,0 +1,69 @@
+#
+# Finetune a ResNet-50 for CIFAR100.
+#
+# For reference, ImageNet performance of available pre-trained models:
+#  - resnet50.fb_swsl_ig1b_ft_in1k:    81.1% (Pretrained on Instagram-1B using SWSL, then fine-tuned on IN-1k)
+#  - resnet50.tv2_in1k:                80.8% (Updated Torchvision recipe)
+#  - resnet50.a1h_in1k:                80.7% (Based on A1 but with stronger dropout, stochastic depth, and RandAugment)
+#  - resnet50.a1_in1k:                 80.4% (ResNet Strikes Back A1 recipe; 600 epochs)
+#  - resnet50.d_in1k:                  79.9% (Recipe D from Appendix of ResNet Strikes Back)
+#  - resnet50.a2_in1k:                 79.8% (ResNet Strikes Back A2 recipe; 300 epochs)
+#  - resnet50.c1_in1k:                 79.8% (Recipe C.1 from Appendix of ResNet Strikes Back)
+#  - resnet50.c2_in1k:                 79.9% (Recipe C.2 from Appendix of ResNet Strikes Back)
+#  - resnet50.b1k_in1k:                79.6% (Recipe B from Appendix of ResNet Strikes Back)
+#  - resnet50.b2k_in1k:                79.4% (Recipe B from Appendix of ResNet Strikes Back)
+#  - resnet50.fb_ssl_yfcc100m_ft_in1k: 79.3% (Pretrained on a subset of YFCC100M using SSL)
+#  - resnet50.ram_in1k:                79.0% (SGD+momentum, CosineAnnealing, AugMix + RandAugment recipe)
+#  - resnet50.am_in1k:                 79.0% (SGD+momentum, CosineAnnealing, AugMix Recipe)
+#  - resnet50.ra_in1k:                 78.8% (Equivalent to Recipe B)
+#  - resnet50.bt_in1k:                 78.4% (Bag-of-Tricks recipe)
+#  - resnet50.a3_in1k:                 78.1% (ResNet Strikes Back A3 recipe; 100 epochs)
+#  - resnet50.gluon_in1k:              77.6% (Bag-of-Tricks recipe)
+#  - resnet50.tv_in1k:                 76.2% (Original Torchvision recipe)
+#
+
+model:
+  Assembly:
+    input_shape: [3, 224, 224]  # TODO: can I get this automatically?
+    parts:
+    - Subnet:
+        backend: timm
+        model_name: resnet50.a1_in1k
+        pretrained: true
+        block_input: x
+        in_format: img
+        block_output: layer4
+        out_format: [img, [2048, 7, 7]]
+    head:
+      ClassifierHead: {num_classes: 100}  # TODO: can I get this automatically?
+
+save_checkpoints: true
+
+train_config:
+  # Dataset
+  dataset: cifar100
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 6
+
+  # Optimization
+  batch_size: 64  # assuming 2 GPU, so effective batch size = 128
+  # TODO: consider adding label smoothing
+  loss_fn: cross_entropy
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 1.0e-5
+    weight_decay: 0.1
+

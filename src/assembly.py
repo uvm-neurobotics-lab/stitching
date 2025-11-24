@@ -304,7 +304,7 @@ class ClassifierHead(nn.Module):
 
     def __init__(self, input_shape, num_classes):
         super().__init__()
-        if len(input_shape) != 1:
+        if len(input_shape) != 3:
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape}.")
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.linear = nn.Linear(input_shape[0], num_classes)
@@ -428,7 +428,7 @@ class Assembly(nn.Module):
             if not isinstance(head, dict) or len(head) > 1:
                 raise ValueError(f"Unrecognized head config format: {head}."
                                  " Should consist of a single class with args.")
-            output_shape = utils.calculate_output_shape(self.trunk_forward, input_shape)
+            output_shape = utils.calculate_output_shape(lambda x: self.trunk_forward(x)[0], input_shape)
             head_args = next(iter(head.values()))
             head_args["input_shape"] = output_shape
             self.head = part_from_config(head)

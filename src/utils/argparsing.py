@@ -14,10 +14,38 @@ from utils import load_yaml
 
 
 def int_or_float(numstr):
+    """
+    This function can be used as an argument type for a numeric value.
+
+    Args:
+        numstr: The user-supplied argument string, to be parsed as a number.
+
+    Returns:
+        int or float: The resulting number.
+    Raises:
+        ValueError: If the string cannot be parsed as a number.
+    """
     try:
         return int(numstr)
     except ValueError:
         return float(numstr)
+
+
+def image_size(szstr):
+    """
+    This function can be used as an argument type for an image size (either a single int or pair of ints).
+
+    Args:
+        szstr: The user-supplied argument string, to be parsed as an image size.
+
+    Returns:
+        int or tuple[int, int]: The resulting size.
+    Raises:
+        ValueError: If the string cannot be parsed as a number.
+    """
+    sz = eval(szstr)
+    if not (isinstance(sz, int) or (isinstance(sz, tuple) and len(sz) == 2)):
+        raise ValueError(f"Invalid size format: {szstr}")
 
 
 def resolved_path(str_path):
