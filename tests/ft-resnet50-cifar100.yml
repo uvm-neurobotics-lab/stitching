@@ -52,8 +52,10 @@ train_config:
 
   # Optimization
   batch_size: 64  # assuming 2 GPU, so effective batch size = 128
-  # TODO: consider adding label smoothing
   loss_fn: cross_entropy
+  # TODO: consider adding label smoothing:
+#  loss_fn_args:
+#    label_smoothing: 0.1
 
   # TODO: Consider adding linear warmup to 1.0 over 500 steps.
   lr_scheduler: CosineAnnealingLR

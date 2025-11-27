@@ -107,11 +107,12 @@ def loss_fns_from_config(config, model):
     Returns:
         dict: A dict of name -> function.
     """
-    loss_fn = function_from_name(config["loss_fn"])
+    loss_fn = function_from_name(config["loss_fn"], **config.get("loss_fn_args", {}))
     loss_fns = {"Main Loss": (loss_fn, 1.0)}
     for i, loss_cfg in enumerate(config.get("aux_losses", [])):
         loss_fns[f"Aux Loss {i + 1}"] = (create_aux_loss_fn(model, loss_cfg["output"],
-                                                            function_from_name(loss_cfg["loss_fn"])),
+                                                            function_from_name(loss_cfg["loss_fn"],
+                                                                               **loss_cfg.get("loss_fn_args", {}))),
                                          loss_cfg.get("weight", 1.0))
     return loss_fns
 
