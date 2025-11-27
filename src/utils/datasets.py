@@ -12,8 +12,8 @@ import numpy as np
 import torch
 import torchvision.datasets as datasets
 import torchvision.transforms.v2 as transforms
-from torchvision.transforms.v2 import (AutoAugmentPolicy, CenterCrop, Compose, Identity, InterpolationMode, Normalize,
-                                       RandomResizedCrop, Resize, ToTensor)
+from torchvision.transforms.v2 import (AutoAugmentPolicy, CenterCrop, Compose, ToDtype, Identity, InterpolationMode,
+                                       Normalize, RandomResizedCrop, Resize, RGB, ToTensor)
 from torch.utils.data import Dataset, Subset
 
 from utils import _and, ensure_config_param, gt_zero, of_type
@@ -196,34 +196,8 @@ class CenterCropOrPad(torch.nn.Module):
         return f"{self.__class__.__name__}(size={self.size})"
 
 
-class MaybeConvertMode:
-    """Perform PIL convert("RGB") iff PIL image.
-    """
-
-    def __init__(self, mode="RGB") -> None:
-        super().__init__()
-        self.mode = mode
-
-    def __call__(self, pic):
-        """
-        Args:
-            pic (PIL Image or numpy.ndarray): Image to be converted to tensor.
-
-        Returns:
-            Tensor: Converted image.
-        """
-        # FIXME if we switched to torchvision v2 transforms, can handle image mode
-        #  conversion more consistently across all input types.
-        if isinstance(pic, (np.ndarray, torch.Tensor)):
-            return pic
-        return pic.convert(self.mode)
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}()"
-
-
 class MaybeToTensor(ToTensor):
-    """Convert a PIL Image or ndarray to tensor if it's not already one."""
+    """Convert a PIL Image or ndarray to tensor if it's not already one, plus ensure uint8 dtype."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -236,9 +210,9 @@ class MaybeToTensor(ToTensor):
         Returns:
             Tensor: Converted image.
         """
-        if isinstance(pic, torch.Tensor):
-            return pic
-        return transforms.functional.to_tensor(pic)
+        if not isinstance(pic, torch.Tensor):
+            pic = transforms.functional.to_image(pic)
+        return transforms.functional.to_dtype(pic, torch.uint8, scale=True)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"
@@ -304,6 +278,7 @@ def augmenter_from_config(transform_list):
 def build_image_transform(
     is_train: bool,
     image_size: Union[int, Tuple[int, int]],
+    to_rgb: bool = True,
     mean: Optional[Tuple[float, ...]] = IMAGENET_MEAN,
     std: Optional[Tuple[float, ...]] = IMAGENET_STD,
     resize_mode: Optional[str] = "shortest",
@@ -315,16 +290,20 @@ def build_image_transform(
     Create image data transforms specified in the given config. The code for resizing images is largely based on code
     from `open_clip` ([see here](https://github.com/mlfoundations/open_clip/blob/d3cdb734a2710feeb4c6307df037afa5f786a3e1/src/open_clip/transform.py#L323C1-L441C1)).
 
-    TODO: Finish docs.
     Args:
-        image_size:
-        is_train:
-        mean:
-        std:
-        resize_mode:
-        interpolation:
-        random_resize_scale:
-        data_augmentation:
+        is_train: If True, then data augmentation will be applied (RandomResizedCrop plus any augmentations defined by
+                  `data_augmentation` rules).
+        image_size: Requested size of the image. For training, this will result in a RandomResizedCrop.
+        to_rgb: If True, convert greyscale images to RGB.
+        mean: Mean to use for normalizing the augmented image.
+        std: Std dev to use for normalizing the augmented image.
+        resize_mode: Valid choices are 'shortest', 'longest', or 'squash'. This only applies to test/validation image
+                     resizing. 'shortest' and 'longest' preserve the aspect ratio. 'shortest' crops the image, while
+                     'longest' pads the image with black fill color. 'squash' simply resizes the image to the specified
+                     size, without any regard to the aspect ratio.
+        interpolation: The interpolation to use for resizing, 'bilinear' or 'bicubic'.
+        random_resize_scale: The `scale` parameter for `RandomResizedCrop`.
+        data_augmentation: The config specifying any desired data augmentations for training.
 
     Returns:
         A composition of transforms which can be passed to a dataset.
@@ -343,8 +322,6 @@ def build_image_transform(
         else:
             raise ValueError(f"Invalid std value: {std}")
 
-    normalize = Normalize(mean=mean, std=std)
-
     interpolation = interpolation or 'bicubic'
     if interpolation not in ('bicubic', 'bilinear'):
         raise ValueError(f"Invalid interpolation value: '{interpolation}'")
@@ -357,47 +334,41 @@ def build_image_transform(
     if not isinstance(random_resize_scale, (list, tuple)) or len(random_resize_scale) != 2:
         raise ValueError(f"Invalid scale value: {random_resize_scale}")
 
+    transforms = [
+        MaybeToTensor(),
+    ]
+    if to_rgb:
+        transforms.append(RGB())
+
     if is_train:
-        return Compose([
-            RandomResizedCrop(image_size, scale=random_resize_scale, interpolation=InterpolationMode.BICUBIC),
-            MaybeConvertMode(),
+        transforms.extend([
+            RandomResizedCrop(image_size, scale=random_resize_scale, interpolation=interpolation_mode),
             augmenter_from_config(data_augmentation),
-            MaybeToTensor(),
-            normalize,
         ])
     else:
-        # TODO: figure out transforms.v2 pipelining
         if resize_mode == 'longest':
-            transforms = [
+            transforms.extend([
                 ResizeKeepRatio(image_size, interpolation=interpolation_mode, longest=1),
                 CenterCropOrPad(image_size, fill=0),
-            ]
+            ])
         elif resize_mode == 'squash':
             if isinstance(image_size, int):
                 image_size = (image_size, image_size)
-            transforms = [
-                Resize(image_size, interpolation=interpolation_mode),
-            ]
+            transforms.append(Resize(image_size, interpolation=interpolation_mode))
         else:
             assert resize_mode == 'shortest'
             if not isinstance(image_size, (tuple, list)):
                 image_size = (image_size, image_size)
             if image_size[0] == image_size[1]:
                 # simple case, use torchvision built-in Resize w/ shortest edge mode (scalar size arg)
-                transforms = [
-                    Resize(image_size[0], interpolation=interpolation_mode)
-                ]
+                transforms.append(Resize(image_size[0], interpolation=interpolation_mode))
             else:
                 # resize shortest edge to matching target dim for non-square target
-                transforms = [ResizeKeepRatio(image_size)]
-            transforms += [CenterCrop(image_size)]
+                transforms.append(ResizeKeepRatio(image_size))
+            transforms.append(CenterCrop(image_size))
 
-        transforms.extend([
-            MaybeConvertMode(),
-            MaybeToTensor(),
-            normalize,
-        ])
-        return Compose(transforms)
+    transforms.extend([ToDtype(torch.float32, scale=True), Normalize(mean=mean, std=std)])
+    return Compose(transforms)
 
 
 def _default_transform_list(dataset_name):
