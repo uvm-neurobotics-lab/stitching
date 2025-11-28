@@ -302,8 +302,12 @@ class BaseBlock(nn.Module):
 
 class ClassifierHead(nn.Module):
 
-    def __init__(self, input_shape, num_classes):
+    def __init__(self, input_shape=None, num_classes=None):
         super().__init__()
+        if input_shape is None:
+            raise RuntimeError(f"{type(self).__name__} requires `input_shape` argument.")
+        if num_classes is None:
+            raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
         if len(input_shape) != 3:
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape}.")
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
@@ -346,26 +350,34 @@ def part_class_from_name(cls_name):
         raise RuntimeError(f"Part class not found: '{cls_name}'")
 
 
-def part_from_config(part_cfg):
+def part_from_config(part_cfg, input_shape=None, num_classes=None):
     if not validate_part(part_cfg):
         raise ValueError(f"Invalid part config:\n{part_cfg}")
     cls_name, args = next(iter(part_cfg.items()))
     PartClass = part_class_from_name(cls_name)
     args = args.copy() if args is not None else {}
+    # The "frozen" arg is only used by the assembly which contains the parts.
     if "frozen" in args:
         del args["frozen"]
+    # Optionally some parts may wish to know the expected input/output format.
+    if input_shape and ("input_shape" in inspect.signature(PartClass).parameters):
+        args.setdefault("input_shape", input_shape)
+    if num_classes and ("num_classes" in inspect.signature(PartClass).parameters):
+        args.setdefault("num_classes", num_classes)
+
+    # Finally, construct the part.
     return PartClass(**args)
 
 
-def model_from_config(config, input_shape=None):
+def model_from_config(config, input_shape=None, num_classes=None):
     """
     Instantiate a network from a config specifying one or more "parts".
 
     Args:
         config: The config where we can find a "model" or "assembly" subconfig.
         input_shape: (Optional) The size of the input tensor that the model can expect, different for different
-            datasets. If using the "model" config format, this must be specified in config manually (most assembly
-            configs are not flexible enough to allow different sizes anyhow).
+            datasets.
+        num_classes: (Optional) The size of the output vector requested by the dataset.
     Returns:
         nn.Module: A callable model.
     """
@@ -373,12 +385,12 @@ def model_from_config(config, input_shape=None):
         raise RuntimeError('You may only specify one of "assembly" or "model".')
     elif "assembly" in config:
         # Slightly deprecated; this parses an older config format.
-        return Assembly(config["assembly"], config.get("head"), input_shape=input_shape,
+        return Assembly(config["assembly"], config.get("head"), input_shape=input_shape, num_classes=num_classes,
                         reformat_options=config.get("reformat_options"))
     elif "model" in config:
         # "model" is the new config item, preferred over "assembly". This allows us to use any type of part at the top
         # level, not just Assembly.
-        return part_from_config(config["model"])
+        return part_from_config(config["model"], input_shape, num_classes)
     else:
         raise RuntimeError(f"Model config not found. Config needs either 'model' or 'assembly' keys.")
 
@@ -405,6 +417,7 @@ class Assembly(nn.Module):
             parts,
             head=None,
             input_shape=None,
+            num_classes=None,
             reformat_options=None,  # FIXME: finish implementing BERT transform options
     ):
         super().__init__()
@@ -430,8 +443,7 @@ class Assembly(nn.Module):
                                  " Should consist of a single class with args.")
             output_shape = utils.calculate_output_shape(lambda x: self.trunk_forward(x)[0], input_shape)
             head_args = next(iter(head.values()))
-            head_args["input_shape"] = output_shape
-            self.head = part_from_config(head)
+            self.head = part_from_config(head, output_shape, num_classes)
             if head_args.get("frozen"):
                 freeze(self.head)
         else:

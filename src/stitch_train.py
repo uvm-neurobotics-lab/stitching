@@ -260,7 +260,7 @@ def setup_and_train(parser, config):
                              num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
 
     logging.info("Constructing model.")
-    model = model_from_config(config, input_shape)
+    model = model_from_config(config, input_shape, num_classes)
     model.to(device)
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 

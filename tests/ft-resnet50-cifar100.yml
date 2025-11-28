@@ -24,7 +24,6 @@
 
 model:
   Assembly:
-    input_shape: [3, 224, 224]  # TODO: can I get this automatically?
     parts:
     - Subnet:
         backend: timm
@@ -35,7 +34,7 @@ model:
         block_output: layer4
         out_format: [img, [2048, 7, 7]]
     head:
-      ClassifierHead: {num_classes: 100}  # TODO: can I get this automatically?
+      ClassifierHead: {}
 
 save_checkpoints: true
 
@@ -66,6 +65,5 @@ train_config:
   # max_grad_norm: 1.0
   optimizer: AdamW
   optimizer_args:
-    lr: 1.0e-5
+    lr: 1.0e-3
     weight_decay: 0.1
-
