@@ -479,6 +479,18 @@ class DTD(datasets.DTD):
         self._labels = [self.class_to_idx[cls] for cls in classes]
 
 
+class EuroSAT(datasets.ImageFolder):
+    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+        split = "train" if is_train else "test"
+        transform = build_image_transform(is_train, **preprocess_config)
+        super().__init__(data_root / "eurosat_splits" / split, transform=transform)
+
+        # Edit the class names.
+        idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
+        self.classes = [idx_to_class[i].replace("_", " ") for i in range(len(idx_to_class))]
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+
+
 class SUN397(datasets.ImageFolder):
     def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
         split = "train" if is_train else "val"
@@ -535,6 +547,10 @@ def _make_datasets(name, data_root, preprocess_config=None):
         elif name == "sun397":
             trainset = SUN397(data_root, True, preprocess_config=preprocess_config)
             testset = SUN397(data_root, False, preprocess_config=preprocess_config)
+            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+        elif name == "eurosat":
+            trainset = EuroSAT(data_root, True, preprocess_config=preprocess_config)
+            testset = EuroSAT(data_root, False, preprocess_config=preprocess_config)
             return trainset, testset, get_data_dims(trainset), len(trainset.classes)
         else:
             trainset = make_torchvision_dataset(name, data_root, True, preprocess_config=preprocess_config)

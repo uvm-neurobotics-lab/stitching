@@ -51,11 +51,11 @@ else
   echo "Skipping RESISC45"
 fi
 
-# euro_sat
-mkdir -p euro_sat
-if [ -z "$(ls -A euro_sat)" ]; then  # Only proceed if directory is empty.
+# eurosat
+mkdir -p eurosat
+if [ -z "$(ls -A eurosat)" ]; then  # Only proceed if directory is empty.
   echo "Downloading EuroSAT"
-  cd euro_sat
+  cd eurosat
   wget --no-check-certificate https://madm.dfki.de/files/sentinel/EuroSAT.zip
   unzip EuroSAT.zip
   rm -rf EuroSAT.zip

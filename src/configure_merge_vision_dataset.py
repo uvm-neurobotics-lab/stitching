@@ -57,8 +57,8 @@ process_dataset(
 
 ### PROCESS EuroSAT_RGB DATASET
 
-src_dir = f'{base_dir}/euro_sat/2750'  # replace with the path to your dataset
-dst_dir = f'{base_dir}/EuroSAT_splits'  # replace with the path to the output directory
+src_dir = f'{base_dir}/eurosat/2750'  # replace with the path to your dataset
+dst_dir = f'{base_dir}/eurosat_splits'  # replace with the path to the output directory
 
 
 def create_directory_structure(dst_dir, classes):
