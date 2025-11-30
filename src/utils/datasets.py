@@ -6,17 +6,17 @@ import numbers
 import random
 from os import PathLike
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
-import torchvision.datasets as datasets
 import torchvision.transforms.v2 as transforms
-from torchvision.transforms.v2 import (AutoAugmentPolicy, CenterCrop, Compose, ToDtype, Identity, InterpolationMode,
-                                       Normalize, RandomResizedCrop, Resize, RGB, ToTensor)
+from torchvision import datasets as datasets
+from torchvision.transforms.v2 import (AutoAugmentPolicy, CenterCrop, Compose, Identity, InterpolationMode, Normalize,
+                                       RandomResizedCrop, Resize, RGB, ToDtype, ToImage)
 from torch.utils.data import Dataset, Subset
 
-from utils import _and, ensure_config_param, gt_zero, of_type
+from utils import _and, ensure_config_param, find_matching_class, gt_zero, of_type
 from utils.argparsing import existing_path, image_size, resolved_path
 
 
@@ -196,7 +196,7 @@ class CenterCropOrPad(torch.nn.Module):
         return f"{self.__class__.__name__}(size={self.size})"
 
 
-class MaybeToTensor(ToTensor):
+class MaybeToTensor(ToImage):
     """Convert a PIL Image or ndarray to tensor if it's not already one, plus ensure uint8 dtype."""
 
     def __init__(self) -> None:
@@ -384,6 +384,7 @@ def _default_transform_list(dataset_name):
     return tlist
 
 
+# noinspection PyTypeChecker
 def _ensure_default_preprocess_config(
         dataset_name: str, preprocess_config: Optional[Union[Dict, bool, Sequence]] = None) -> Dict[str, Any]:
     """
@@ -413,6 +414,16 @@ def _ensure_default_preprocess_config(
     # Default to ImageNet standard size.
     preprocess_config.setdefault("image_size", 224)
 
+    if dataset_name == "cifar10":
+        preprocess_config.setdefault("mean", CIFAR10_MEAN)
+        preprocess_config.setdefault("std", CIFAR10_STD)
+    elif dataset_name == "cifar100":
+        preprocess_config.setdefault("mean", CIFAR100_MEAN)
+        preprocess_config.setdefault("std", CIFAR100_STD)
+    elif dataset_name.startswith("imagenet"):
+        preprocess_config.setdefault("mean", IMAGENET_MEAN)
+        preprocess_config.setdefault("std", IMAGENET_STD)
+
     return preprocess_config
 
 
@@ -421,51 +432,116 @@ def _ensure_default_preprocess_config(
 ###############################################################################
 
 
-# noinspection PyTypeChecker
-def make_cifar(name, split, data_root, preprocess_config):
-    if name == "cifar10":
-        cls = datasets.CIFAR10
-        preprocess_config.setdefault("mean", CIFAR10_MEAN)
-        preprocess_config.setdefault("std", CIFAR10_STD)
-    elif name == "cifar100":
-        cls = datasets.CIFAR100
-        preprocess_config.setdefault("mean", CIFAR100_MEAN)
-        preprocess_config.setdefault("std", CIFAR100_STD)
-    else:
-        raise ValueError(f"Unrecognized dataset: {name}")
+class DTD(datasets.DTD):
+    """ A version of DTD that combines the "train" and "val" splits into a single training split. """
+    def __init__(
+        self,
+        root: Union[str, Path],
+        train: bool = True,
+        partition: int = 1,
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None,
+        download: bool = False,
+    ) -> None:
+        self._split = "train" if train else "test"
+        self._splits = ["train", "val"] if train else ["test"]
+        if not isinstance(partition, int) and not (1 <= partition <= 10):
+            raise ValueError(
+                f"Parameter 'partition' should be an integer with `1 <= partition <= 10`, "
+                f"but got {partition} instead"
+            )
+        self._partition = partition
 
-    if split == "train":
-        is_train = True
-    elif split.startswith("val") or split == "test":
-        is_train = False
-    else:
-        raise ValueError(f"Unrecognized split: {split}")
+        # NOTE: Do not call the immediate superclass. Skip over it and call the "grandparent".
+        super(datasets.DTD, self).__init__(root, transform=transform, target_transform=target_transform)
+        self._base_folder = Path(self.root) / type(self).__name__.lower()
+        self._data_folder = self._base_folder / "dtd"
+        self._meta_folder = self._data_folder / "labels"
+        self._images_folder = self._data_folder / "images"
 
+        if download:
+            self._download()
+
+        if not self._check_exists():
+            raise RuntimeError("Dataset not found. You can use download=True to download it")
+
+        self._image_files = []
+        classes = []
+        for split in self._splits:
+            with open(self._meta_folder / f"{split}{self._partition}.txt") as file:
+                for line in file:
+                    cls, name = line.strip().split("/")
+                    self._image_files.append(self._images_folder.joinpath(cls, name))
+                    classes.append(cls)
+
+        self.classes = sorted(set(classes))
+        self.class_to_idx = dict(zip(self.classes, range(len(self.classes))))
+        self._labels = [self.class_to_idx[cls] for cls in classes]
+
+
+class SUN397(datasets.ImageFolder):
+    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+        split = "train" if is_train else "val"
+        transform = build_image_transform(is_train, **preprocess_config)
+        super().__init__(data_root / "sun397" / split, transform=transform)
+
+        # Edit the class names.
+        idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
+        self.classes = [idx_to_class[i][2:].replace("_", " ") for i in range(len(idx_to_class))]
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+
+
+def make_torchvision_dataset(name: str, data_root: Path, is_train: bool, preprocess_config: dict):
+    # Find the torchvision dataset with a matching name.
+    DatasetClass = find_matching_class(datasets, name)
+    kwargs = {}
+    if name.startswith("cifar") or name.find("mnist") >= 0:
+        kwargs["train"] = is_train
+    else:
+        kwargs["split"] = "train" if is_train else "test"
+    if not name == "stanfordcars":
+        kwargs["download"] = True
     transform = build_image_transform(is_train, **preprocess_config)
-    return cls(data_root, is_train, transform, download=True)
+    return DatasetClass(data_root, transform=transform, **kwargs)
 
 
-def make_imagenet(split, data_root, preprocess_config):
-    preprocess_config.setdefault("mean", IMAGENET_MEAN)
-    preprocess_config.setdefault("std", IMAGENET_STD)
+def make_dtd(data_root: Path, is_train: bool, preprocess_config: dict):
+    transform = build_image_transform(is_train, **preprocess_config)
+    return DTD(data_root, is_train, transform=transform, download=True)
+
+
+def make_imagenet(split: str, data_root: Path, preprocess_config: dict):
     transform = build_image_transform(split == "train", **preprocess_config)
     return datasets.ImageFolder(data_root / "imagenet" / split, transform)
+
+
+def get_data_dims(dataset):
+    return next(iter(dataset))[0].shape
 
 
 def _make_datasets(name, data_root, preprocess_config=None):
     name = name.lower()
     preprocess_config = _ensure_default_preprocess_config(name, preprocess_config)
 
-    if name == "cifar10" or name == "cifar100":
-        num_classes = 100 if name == "cifar100" else 10
-        return (make_cifar(name, "train", data_root, preprocess_config=preprocess_config),
-                make_cifar(name, "val", data_root, preprocess_config=preprocess_config),
-                (3, 224, 224), num_classes)
-    elif name == "imagenet" or name == "imagenet-1k":
-        return (make_imagenet("train", data_root, preprocess_config=preprocess_config),
-                make_imagenet("val", data_root, preprocess_config=preprocess_config),
-                (3, 224, 224), 1000)
-    else:
+    try:
+        if name == "imagenet" or name == "imagenet-1k":
+            trainset = make_imagenet("train", data_root, preprocess_config=preprocess_config)
+            testset = make_imagenet("val", data_root, preprocess_config=preprocess_config)
+            return trainset, testset, get_data_dims(trainset), 1000
+        elif name == "dtd":
+            trainset = make_dtd(data_root, True, preprocess_config=preprocess_config)
+            testset = make_dtd(data_root, False, preprocess_config=preprocess_config)
+            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+        elif name == "sun397":
+            trainset = SUN397(data_root, True, preprocess_config=preprocess_config)
+            testset = SUN397(data_root, False, preprocess_config=preprocess_config)
+            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+        else:
+            trainset = make_torchvision_dataset(name, data_root, True, preprocess_config=preprocess_config)
+            testset = make_torchvision_dataset(name, data_root, False, preprocess_config=preprocess_config)
+            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+
+    except AttributeError:
         raise ValueError(f"Unrecognized dataset: {name}")
 
 

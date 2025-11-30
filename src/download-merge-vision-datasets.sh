@@ -51,24 +51,6 @@ else
   echo "Skipping RESISC45"
 fi
 
-# dtd
-mkdir -p dtd
-if [ -z "$(ls -A dtd)" ]; then  # Only proceed if directory is empty.
-  echo "Downloading DTD"
-  cd dtd
-  wget https://www.robots.ox.ac.uk/~vgg/data/dtd/download/dtd-r1.0.1.tar.gz
-  tar -xvzf dtd-r1.0.1.tar.gz
-  rm -rf dtd-r1.0.1.tar.gz
-  mv dtd/images images
-  mv dtd/imdb/ imdb
-  mv dtd/labels labels
-  cat labels/train1.txt labels/val1.txt > labels/train.txt
-  cat labels/test1.txt > labels/test.txt
-  cd ..
-else
-  echo "Skipping DTD"
-fi
-
 # euro_sat
 mkdir -p euro_sat
 if [ -z "$(ls -A euro_sat)" ]; then  # Only proceed if directory is empty.

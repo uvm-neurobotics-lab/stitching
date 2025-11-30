@@ -18,7 +18,7 @@ base_dir = f'data'
 ### PROCESS SUN397 DATASET
 
 downloaded_data_path = f"{base_dir}/sun397"
-output_path = f"{base_dir}/sun397"
+sun_dir = f"{base_dir}/sun397"
 
 
 def process_dataset(txt_file, downloaded_data_path, output_folder):
@@ -46,12 +46,12 @@ def process_dataset(txt_file, downloaded_data_path, output_folder):
 process_dataset(
     os.path.join(downloaded_data_path, 'Partitions', 'Training_01.txt'),
     os.path.join(downloaded_data_path, 'SUN397'),
-    os.path.join(output_path, "train")
+    os.path.join(sun_dir, "train")
 )
 process_dataset(
     os.path.join(downloaded_data_path, 'Partitions', 'Testing_01.txt'),
     os.path.join(downloaded_data_path, 'SUN397'),
-    os.path.join(output_path, "val")
+    os.path.join(sun_dir, "val")
 )
 
 
@@ -102,37 +102,3 @@ def split_dataset(dst_dir, src_dir, classes, val_size=270, test_size=270):
 classes = [d for d in os.listdir(src_dir) if os.path.isdir(os.path.join(src_dir, d))]
 create_directory_structure(dst_dir, classes)
 split_dataset(dst_dir, src_dir, classes)
-
-
-### PROCESS DTD DATASET
-
-downloaded_data_path = f"{base_dir}/dtd/images"
-output_path = f"{base_dir}/dtd"
-
-
-def process_dataset(txt_file, downloaded_data_path, output_folder):
-    with open(txt_file, 'r') as file:
-        lines = file.readlines()
-
-    for i, line in enumerate(lines):
-        input_path = line.strip()
-        final_folder_name = input_path.split('/')[:-1][0]
-        filename = input_path.split('/')[-1]
-        output_class_folder = os.path.join(output_folder, final_folder_name)
-
-        if not os.path.exists(output_class_folder):
-            os.makedirs(output_class_folder)
-
-        full_input_path = os.path.join(downloaded_data_path, input_path)
-        output_file_path = os.path.join(output_class_folder, filename)
-        shutil.copy(full_input_path, output_file_path)
-        if i % 100 == 0:
-            print(f"Processed {i}/{len(lines)} images")
-
-
-process_dataset(
-    f'{base_dir}/dtd/labels/train.txt', downloaded_data_path, os.path.join(output_path, "train")
-)
-process_dataset(
-    f'{base_dir}/dtd/labels/test.txt', downloaded_data_path, os.path.join(output_path, "val")
-)

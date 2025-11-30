@@ -8,7 +8,8 @@ import sys
 from collections.abc import Mapping, Sequence, Set
 from importlib import import_module
 from pathlib import Path
-from typing import Dict, Iterable
+from types import ModuleType
+from typing import Any, Dict, Iterable
 
 
 ###############################################################################
@@ -77,16 +78,19 @@ def update_with_keys(src, dest, keys):
             dest[k] = src[k]
 
 
-def function_from_name(name, **kwargs):
+def function_from_name(name: str, **kwargs):
     """
     Given the fully-qualified name of a function, returns a reference to it. Adding any extra keyword args will result
-    in a partially curried version of the function using `functools.partial(fn, **kwargs)`.
+    in a partially curried version of the function using `functools.partial(fn, **kwargs)`. If the function is not
+    fully-qualified, then it will search the following modules, in this order:
+         - `torch.nn.functional`
+         - `utils.metrics`
     """
     splitname = name.rsplit('.', 1)
     if len(splitname) == 2:
         module, member = splitname
         fn = getattr(import_module(module), member)
-    else:
+    else:  # i.e., len(splitname) == 1
         member = splitname[0]
         mods_to_try = ["torch.nn.functional", "utils.metrics"]
         fn = None
@@ -100,6 +104,29 @@ def function_from_name(name, **kwargs):
     if kwargs:
         fn = functools.partial(fn, **kwargs)
     return fn
+
+
+def find_matching_class(obj: Any, name: str) -> Any:
+    """
+    Finds a _case-insensitive_ match for `name` inside the given module or object. This can be used to make it easier
+    easier for users to specify a desired class. For instance, they could say "cifar10" or "CIFAR10" to specify a
+    dataset, or say "adamw" or "AdamW" to specify an optimizer.
+
+    Args:
+        obj: The module/object to search.
+        name: The name of the desired class (NOTE: only searches public attributes).
+
+    Returns:
+        The matching class.
+    Raises:
+        AttributeError: When no matching class is found.
+    """
+    attr_map = {aname.lower(): attr for aname, attr in vars(obj).items()
+                if isinstance(attr, type) and not aname.startswith('_')}  # if `attr` is a public class
+    if name.lower() in attr_map:
+        return attr_map[name.lower()]
+    else:
+        raise AttributeError(f'Unable to find "{name}" in {obj}.')
 
 
 ###############################################################################
