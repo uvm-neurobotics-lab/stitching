@@ -483,7 +483,7 @@ class EuroSAT(datasets.ImageFolder):
     def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
         split = "train" if is_train else "test"
         transform = build_image_transform(is_train, **preprocess_config)
-        super().__init__(data_root / "eurosat_splits" / split, transform=transform)
+        super().__init__(data_root / "eurosat" / "splits" / split, transform=transform)
 
         # Edit the class names.
         idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
