@@ -526,6 +526,8 @@ def make_torchvision_dataset(name: str, data_root: Path, is_train: bool, preproc
         kwargs["split"] = "train" if is_train else "test"
     if not name == "stanfordcars":
         kwargs["download"] = True
+    if name == "emnist":
+        kwargs["split"] = "digits"
     transform = build_image_transform(is_train, **preprocess_config)
     return DatasetClass(data_root, transform=transform, **kwargs)
 
