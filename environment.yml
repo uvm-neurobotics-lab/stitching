@@ -9,9 +9,11 @@ dependencies:
   - seaborn
   - tqdm
   - pytest
-  - scipy
+  - scipy  # only needed for the Flowers102 and SVHN datasets
   - tabulate
   - torchtnt  # only for FLOP counts in the analysis notebooks
+  - h5py  # only needed for the PCAM dataset
+  - gdown  # only needed for the PCAM dataset
   - wandb  # optional
   - pip:
       - torch

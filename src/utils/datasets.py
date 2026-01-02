@@ -4,6 +4,7 @@ Module for loading of datasets specified on command line.
 import inspect
 import numbers
 import random
+import sys
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
@@ -481,10 +482,11 @@ class DTD(datasets.DTD):
 
 
 class EuroSAT(datasets.ImageFolder):
-    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
         split = "train" if is_train else "test"
-        transform = build_image_transform(is_train, **preprocess_config)
-        super().__init__(data_root / "eurosat" / "splits" / split, transform=transform)
+        super().__init__(data_root / "eurosat" / "splits" / split, transform=transform,
+                         target_transform=target_transform)
 
         # Edit the class names.
         idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
@@ -493,10 +495,10 @@ class EuroSAT(datasets.ImageFolder):
 
 
 class RESISC45(datasets.ImageFolder):
-    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
         split = "train" if is_train else "test"
-        transform = build_image_transform(is_train, **preprocess_config)
-        super().__init__(data_root / "resisc45" / split, transform=transform)
+        super().__init__(data_root / "resisc45" / split, transform=transform, target_transform=target_transform)
 
         # Edit the class names.
         idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
@@ -505,10 +507,10 @@ class RESISC45(datasets.ImageFolder):
 
 
 class FER2013(datasets.ImageFolder):
-    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
         split = "train" if is_train else "test"
-        transform = build_image_transform(is_train, **preprocess_config)
-        super().__init__(data_root / "fer2013" / split, transform=transform)
+        super().__init__(data_root / "fer2013" / split, transform=transform, target_transform=target_transform)
 
         # Edit the class names.
         idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
@@ -517,10 +519,10 @@ class FER2013(datasets.ImageFolder):
 
 
 class SUN397(datasets.ImageFolder):
-    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
         split = "train" if is_train else "val"
-        transform = build_image_transform(is_train, **preprocess_config)
-        super().__init__(data_root / "sun397" / split, transform=transform)
+        super().__init__(data_root / "sun397" / split, transform=transform, target_transform=target_transform)
 
         # Edit the class names.
         idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
@@ -528,72 +530,212 @@ class SUN397(datasets.ImageFolder):
         self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
 
 
-def make_torchvision_dataset(name: str, data_root: Path, is_train: bool, preprocess_config: dict):
-    # Find the torchvision dataset with a matching name.
-    DatasetClass = find_matching_class(datasets, name, raise_error=False)
-    if DatasetClass is None:
-        raise ValueError(f"Unrecognized dataset: {name}")
+class GTSRB(datasets.GTSRB):
+    def __init__(self, root: Union[str, Path], split: str = "train", transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None, download: bool = False):
+        super().__init__(root, split, transform, target_transform, download)
 
+        # Derive class names b/c the parent class doesn't have them.
+        self.class_to_idx = {str(s[1]): s[1] for s in self._samples}
+        self.classes = list(self.class_to_idx.keys())
+
+
+class PCAM(datasets.PCAM):
+    # PCAM is binary classification.
+    class_to_idx = {"negative": 0, "positive": 1}
+    classes = list(class_to_idx.keys())
+
+
+class SVHN(datasets.SVHN):
+    # SVHN classes are digits 0-9.
+    classes = list(range(10))
+    class_to_idx = {str(c): c for c in classes}
+
+    def __init__(self, root: Union[str, Path], split: str = "train", transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None, download: bool = False):
+        # SVHN is the only dataset that doesn't create its own subdirectory, for some reason.
+        super().__init__(Path(root) / "svhn", split, transform, target_transform, download)
+
+
+class Flowers102(datasets.Flowers102):
+    # Back-ported from a newer version of Torchvision (0.23.1), to allow us to support older versions.
+    classes = [
+        "pink primrose",
+        "hard-leaved pocket orchid",
+        "canterbury bells",
+        "sweet pea",
+        "english marigold",
+        "tiger lily",
+        "moon orchid",
+        "bird of paradise",
+        "monkshood",
+        "globe thistle",
+        "snapdragon",
+        "colt's foot",
+        "king protea",
+        "spear thistle",
+        "yellow iris",
+        "globe-flower",
+        "purple coneflower",
+        "peruvian lily",
+        "balloon flower",
+        "giant white arum lily",
+        "fire lily",
+        "pincushion flower",
+        "fritillary",
+        "red ginger",
+        "grape hyacinth",
+        "corn poppy",
+        "prince of wales feathers",
+        "stemless gentian",
+        "artichoke",
+        "sweet william",
+        "carnation",
+        "garden phlox",
+        "love in the mist",
+        "mexican aster",
+        "alpine sea holly",
+        "ruby-lipped cattleya",
+        "cape flower",
+        "great masterwort",
+        "siam tulip",
+        "lenten rose",
+        "barbeton daisy",
+        "daffodil",
+        "sword lily",
+        "poinsettia",
+        "bolero deep blue",
+        "wallflower",
+        "marigold",
+        "buttercup",
+        "oxeye daisy",
+        "common dandelion",
+        "petunia",
+        "wild pansy",
+        "primula",
+        "sunflower",
+        "pelargonium",
+        "bishop of llandaff",
+        "gaura",
+        "geranium",
+        "orange dahlia",
+        "pink-yellow dahlia?",
+        "cautleya spicata",
+        "japanese anemone",
+        "black-eyed susan",
+        "silverbush",
+        "californian poppy",
+        "osteospermum",
+        "spring crocus",
+        "bearded iris",
+        "windflower",
+        "tree poppy",
+        "gazania",
+        "azalea",
+        "water lily",
+        "rose",
+        "thorn apple",
+        "morning glory",
+        "passion flower",
+        "lotus",
+        "toad lily",
+        "anthurium",
+        "frangipani",
+        "clematis",
+        "hibiscus",
+        "columbine",
+        "desert-rose",
+        "tree mallow",
+        "magnolia",
+        "cyclamen",
+        "watercress",
+        "canna lily",
+        "hippeastrum",
+        "bee balm",
+        "ball moss",
+        "foxglove",
+        "bougainvillea",
+        "camellia",
+        "mallow",
+        "mexican petunia",
+        "bromelia",
+        "blanket flower",
+        "trumpet creeper",
+        "blackberry lily",
+    ]
+
+
+class ImageNet(datasets.ImageFolder):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
+        split = "train" if is_train else "val"
+        super().__init__(data_root / "imagenet" / split, transform=transform, target_transform=target_transform)
+
+        # Edit the class names.
+        idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
+        self.classes = [idx_to_class[i].replace("_", " ") for i in range(len(idx_to_class))]
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+
+
+def _find_and_make_dataset(name: str, data_root: Path, is_train: bool, preprocess_config: dict):
+    """ Can be used to construct one of the dataset classes in this module, or in `torchvision.datasets`. """
+    # Prefer classes in this module: search here first.
+    DatasetClass = find_matching_class(sys.modules[__name__], name, raise_error=False)
+    if DatasetClass is None:
+        # Find the torchvision dataset with a matching name.
+        DatasetClass = find_matching_class(datasets, name, raise_error=False)
+        if DatasetClass is None:
+            raise ValueError(f"Unrecognized dataset: {name}")
+
+    # Determine how we should specify the train/test split.
     kwargs = {}
-    if name.startswith("cifar") or name.find("mnist") >= 0:
+    argmap = inspect.signature(DatasetClass).parameters
+    if "train" in argmap:
         kwargs["train"] = is_train
-    else:
-        kwargs["split"] = "train" if is_train else "test"
-    if not (name == "stanfordcars" or name == "fer2013"):
+    if "is_train" in argmap:
+        kwargs["is_train"] = is_train
+    if "split" in argmap:
+        if is_train:
+            kwargs["split"] = "trainval" if name == "oxfordiiitpet" else "train"
+        else:
+            kwargs["split"] = "test"
+        # Special case: "split" has a different meaning for EMNIST.
+        if name == "emnist":
+            kwargs["split"] = "digits"
+    if "download" in argmap:
         kwargs["download"] = True
-    if name == "emnist":
-        kwargs["split"] = "digits"
+
+    # Now assemble the required preprocessing, and construct the dataset.
     transform = build_image_transform(is_train, **preprocess_config)
     return DatasetClass(data_root, transform=transform, **kwargs)
-
-
-def make_dtd(data_root: Path, is_train: bool, preprocess_config: dict):
-    transform = build_image_transform(is_train, **preprocess_config)
-    return DTD(data_root, is_train, transform=transform, download=True)
-
-
-def make_imagenet(split: str, data_root: Path, preprocess_config: dict):
-    transform = build_image_transform(split == "train", **preprocess_config)
-    return datasets.ImageFolder(data_root / "imagenet" / split, transform)
 
 
 def get_data_dims(dataset):
     return next(iter(dataset))[0].shape
 
 
-def _make_datasets(name, data_root, preprocess_config=None):
+def _dataset_name_remapping(name):
     name = name.lower()
+    remap = {
+        "flowers": "flowers102",
+        "pets": "oxfordiiitpet",
+        "oxfordpets": "oxfordiiitpet",
+        "oxford-pets": "oxfordiiitpet",
+        "cars": "stanfordcars",
+        "stanford-cars": "stanfordcars",
+        "imagenet-1k": "imagenet",
+    }
+    return remap.get(name, name)
+
+
+def _make_datasets(name, data_root, preprocess_config=None):
+    name = _dataset_name_remapping(name)
     preprocess_config = _ensure_default_preprocess_config(name, preprocess_config)
 
-    if name == "imagenet" or name == "imagenet-1k":
-        trainset = make_imagenet("train", data_root, preprocess_config=preprocess_config)
-        testset = make_imagenet("val", data_root, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), 1000
-    elif name == "dtd":
-        trainset = make_dtd(data_root, True, preprocess_config=preprocess_config)
-        testset = make_dtd(data_root, False, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-    elif name == "eurosat":
-        trainset = EuroSAT(data_root, True, preprocess_config=preprocess_config)
-        testset = EuroSAT(data_root, False, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-    elif name == "fer2013":
-        trainset = FER2013(data_root, True, preprocess_config=preprocess_config)
-        testset = FER2013(data_root, False, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-    elif name == "resisc45":
-        trainset = RESISC45(data_root, True, preprocess_config=preprocess_config)
-        testset = RESISC45(data_root, False, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-    elif name == "sun397":
-        trainset = SUN397(data_root, True, preprocess_config=preprocess_config)
-        testset = SUN397(data_root, False, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-    else:
-        # This final clause will raise a readable error if the dataset is unrecognized.
-        trainset = make_torchvision_dataset(name, data_root, True, preprocess_config=preprocess_config)
-        testset = make_torchvision_dataset(name, data_root, False, preprocess_config=preprocess_config)
-        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    # Will raise a readable error if the dataset is unrecognized.
+    trainset = _find_and_make_dataset(name, data_root, True, preprocess_config=preprocess_config)
+    testset = _find_and_make_dataset(name, data_root, False, preprocess_config=preprocess_config)
+    return trainset, testset, get_data_dims(trainset), len(trainset.classes)
 
 
 def make_datasets(
