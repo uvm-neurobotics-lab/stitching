@@ -4,7 +4,7 @@
 #
 # NOTE: Before running, you must do the following:
 #  - Replace the KAGGLE_USERNAME and KAGGLE_KEY with your own below.
-#  - Manually download this file: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
+#  - Manually download this file and store it in ./data: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
 #
 # These are some of the datasets used by the Task Vectors paper, and subsequent papers, to evaluate model merging. The
 # rest of the datasets used by this line of work can be acquired directly through Torchvision, but these few require
@@ -65,16 +65,18 @@ Skipping FER2013
 fi
 
 # resisc45
+# NOTE: Manually download this before running: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
 mkdir -p resisc45
 if [ -z "$(ls -A resisc45)" ]; then  # Only proceed if directory is empty.
-  echo """
+
+  if [ -f "./NWPU-RESISC45.rar" ]; then
+    echo """
 ==============================================================================
-Downloading RESISC45
+Unpacking RESISC45
 ==============================================================================
 """
   cd resisc45
-  # NOTE: Manually download this before running: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
-  mv ~/Downloads/NWPU-RESISC45.rar ./
+  mv ../NWPU-RESISC45.rar ./
   if [[ "$(uname -s)" == "Darwin" ]]; then
     brew install unar
   else
@@ -88,6 +90,14 @@ Downloading RESISC45
   cd ..
 else
   echo """
+==============================================================================
+WARNING: RESISC45 file not found
+==============================================================================
+"""
+  fi
+
+else
+    echo """
 ==============================================================================
 Skipping RESISC45
 ==============================================================================
