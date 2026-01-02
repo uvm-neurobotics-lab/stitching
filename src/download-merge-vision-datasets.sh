@@ -78,11 +78,12 @@ Unpacking RESISC45
   cd resisc45
   mv ../NWPU-RESISC45.rar ./
   if [[ "$(uname -s)" == "Darwin" ]]; then
-    brew install unar
+    brew install sevenzip
   else
-    sudo apt -y install unar
+    # NOTE: Assuming this is a server where we don't have global install privileges.
+    conda install p7zip
   fi
-  unar NWPU-RESISC45.rar
+  7z x NWPU-RESISC45.rar
   wget -O resisc45-train.txt "https://huggingface.co/datasets/torchgeo/resisc45/resolve/main/resisc45-train.txt"
   wget -O resisc45-val.txt "https://huggingface.co/datasets/torchgeo/resisc45/resolve/main/resisc45-val.txt"
   wget -O resisc45-test.txt "https://huggingface.co/datasets/torchgeo/resisc45/resolve/main/resisc45-test.txt"
