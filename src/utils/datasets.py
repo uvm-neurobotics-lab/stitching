@@ -702,7 +702,7 @@ def _find_and_make_dataset(name: str, data_root: Path, is_train: bool, preproces
         # Special case: "split" has a different meaning for EMNIST.
         if name == "emnist":
             kwargs["split"] = "digits"
-    if "download" in argmap:
+    if "download" in argmap and name != "stanfordcars":
         kwargs["download"] = True
 
     # Now assemble the required preprocessing, and construct the dataset.
