@@ -2,7 +2,9 @@
 ###
 # A script to download datasets for vision model merging.
 #
-# NOTE: Before running, manually download this file: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
+# NOTE: Before running, you must do the following:
+#  - Replace the KAGGLE_USERNAME and KAGGLE_KEY with your own below.
+#  - Manually download this file: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
 #
 # These are some of the datasets used by the Task Vectors paper, and subsequent papers, to evaluate model merging. The
 # rest of the datasets used by this line of work can be acquired directly through Torchvision, but these few require
@@ -33,6 +35,31 @@ else
   echo """
 ==============================================================================
 Skipping Stanford Cars
+==============================================================================
+"""
+fi
+
+# FER2013 Dataset
+mkdir -p fer2013
+if [ -z "$(ls -A fer2013)" ]; then  # Only proceed if directory is empty.
+  echo """
+==============================================================================
+Downloading FER2013
+==============================================================================
+"""
+  cd fer2013
+  kaggle datasets download --unzip msambare/fer2013
+  # NOTE: Use the code below if you prefer to use the original dataset from the Kaggle competition. This is the format
+  # supported by Torchvision. But it's honestly kind of a mess. And you need to join the competition on Kaggle and
+  # accept the terms before you can download: https://www.kaggle.com/competitions/challenges-in-representation-learning-facial-expression-recognition-challenge/data
+#  kaggle competitions download -c challenges-in-representation-learning-facial-expression-recognition-challenge
+#  unzip challenges-in-representation-learning-facial-expression-recognition-challenge.zip
+#  rm challenges-in-representation-learning-facial-expression-recognition-challenge.zip
+  cd ..
+else
+  echo """
+==============================================================================
+Skipping FER2013
 ==============================================================================
 """
 fi

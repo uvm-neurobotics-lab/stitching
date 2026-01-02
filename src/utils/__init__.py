@@ -106,7 +106,7 @@ def function_from_name(name: str, **kwargs):
     return fn
 
 
-def find_matching_class(obj: Any, name: str) -> Any:
+def find_matching_class(obj: Any, name: str, raise_error: bool = True) -> Any:
     """
     Finds a _case-insensitive_ match for `name` inside the given module or object. This can be used to make it easier
     easier for users to specify a desired class. For instance, they could say "cifar10" or "CIFAR10" to specify a
@@ -115,18 +115,22 @@ def find_matching_class(obj: Any, name: str) -> Any:
     Args:
         obj: The module/object to search.
         name: The name of the desired class (NOTE: only searches public attributes).
+        raise_error: `True` if we should raise an exception when a match is not found, or `False` to return `None`.
 
     Returns:
         The matching class.
     Raises:
-        AttributeError: When no matching class is found.
+        AttributeError: When no matching class is found and `raise_error` is `True`.
     """
     attr_map = {aname.lower(): attr for aname, attr in vars(obj).items()
                 if isinstance(attr, type) and not aname.startswith('_')}  # if `attr` is a public class
     if name.lower() in attr_map:
         return attr_map[name.lower()]
     else:
-        raise AttributeError(f'Unable to find "{name}" in {obj}.')
+        if raise_error:
+            raise AttributeError(f'Unable to find "{name}" in {obj}.')
+        else:
+            return None
 
 
 ###############################################################################

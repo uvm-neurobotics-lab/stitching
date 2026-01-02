@@ -504,6 +504,18 @@ class RESISC45(datasets.ImageFolder):
         self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
 
 
+class FER2013(datasets.ImageFolder):
+    def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
+        split = "train" if is_train else "test"
+        transform = build_image_transform(is_train, **preprocess_config)
+        super().__init__(data_root / "fer2013" / split, transform=transform)
+
+        # Edit the class names.
+        idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
+        self.classes = [idx_to_class[i].replace("_", " ") for i in range(len(idx_to_class))]
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+
+
 class SUN397(datasets.ImageFolder):
     def __init__(self, data_root: Path, is_train: bool, preprocess_config: dict):
         split = "train" if is_train else "val"
@@ -518,13 +530,16 @@ class SUN397(datasets.ImageFolder):
 
 def make_torchvision_dataset(name: str, data_root: Path, is_train: bool, preprocess_config: dict):
     # Find the torchvision dataset with a matching name.
-    DatasetClass = find_matching_class(datasets, name)
+    DatasetClass = find_matching_class(datasets, name, raise_error=False)
+    if DatasetClass is None:
+        raise ValueError(f"Unrecognized dataset: {name}")
+
     kwargs = {}
     if name.startswith("cifar") or name.find("mnist") >= 0:
         kwargs["train"] = is_train
     else:
         kwargs["split"] = "train" if is_train else "test"
-    if not name == "stanfordcars":
+    if not (name == "stanfordcars" or name == "fer2013"):
         kwargs["download"] = True
     if name == "emnist":
         kwargs["split"] = "digits"
@@ -550,34 +565,35 @@ def _make_datasets(name, data_root, preprocess_config=None):
     name = name.lower()
     preprocess_config = _ensure_default_preprocess_config(name, preprocess_config)
 
-    try:
-        if name == "imagenet" or name == "imagenet-1k":
-            trainset = make_imagenet("train", data_root, preprocess_config=preprocess_config)
-            testset = make_imagenet("val", data_root, preprocess_config=preprocess_config)
-            return trainset, testset, get_data_dims(trainset), 1000
-        elif name == "dtd":
-            trainset = make_dtd(data_root, True, preprocess_config=preprocess_config)
-            testset = make_dtd(data_root, False, preprocess_config=preprocess_config)
-            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-        elif name == "eurosat":
-            trainset = EuroSAT(data_root, True, preprocess_config=preprocess_config)
-            testset = EuroSAT(data_root, False, preprocess_config=preprocess_config)
-            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-        elif name == "resisc45":
-            trainset = RESISC45(data_root, True, preprocess_config=preprocess_config)
-            testset = RESISC45(data_root, False, preprocess_config=preprocess_config)
-            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-        elif name == "sun397":
-            trainset = SUN397(data_root, True, preprocess_config=preprocess_config)
-            testset = SUN397(data_root, False, preprocess_config=preprocess_config)
-            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-        else:
-            trainset = make_torchvision_dataset(name, data_root, True, preprocess_config=preprocess_config)
-            testset = make_torchvision_dataset(name, data_root, False, preprocess_config=preprocess_config)
-            return trainset, testset, get_data_dims(trainset), len(trainset.classes)
-
-    except AttributeError:
-        raise ValueError(f"Unrecognized dataset: {name}")
+    if name == "imagenet" or name == "imagenet-1k":
+        trainset = make_imagenet("train", data_root, preprocess_config=preprocess_config)
+        testset = make_imagenet("val", data_root, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), 1000
+    elif name == "dtd":
+        trainset = make_dtd(data_root, True, preprocess_config=preprocess_config)
+        testset = make_dtd(data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    elif name == "eurosat":
+        trainset = EuroSAT(data_root, True, preprocess_config=preprocess_config)
+        testset = EuroSAT(data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    elif name == "fer2013":
+        trainset = FER2013(data_root, True, preprocess_config=preprocess_config)
+        testset = FER2013(data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    elif name == "resisc45":
+        trainset = RESISC45(data_root, True, preprocess_config=preprocess_config)
+        testset = RESISC45(data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    elif name == "sun397":
+        trainset = SUN397(data_root, True, preprocess_config=preprocess_config)
+        testset = SUN397(data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    else:
+        # This final clause will raise a readable error if the dataset is unrecognized.
+        trainset = make_torchvision_dataset(name, data_root, True, preprocess_config=preprocess_config)
+        testset = make_torchvision_dataset(name, data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
 
 
 def make_datasets(
