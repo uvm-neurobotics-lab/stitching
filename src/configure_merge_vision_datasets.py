@@ -1,6 +1,8 @@
 """
 A script to configure the datasets downloaded by download-merge-vision-datasets.sh.
 
+Note that some files must be manually downloaded, as specified in the docs at the top of the download script.
+
 These are some of the datasets used by the Task Vectors paper, and subsequent papers, to evaluate model merging. The
 rest of the datasets used by this line of work can be acquired directly through Torchvision, but these few require
 manual setup. These scripts automate most of the setup.

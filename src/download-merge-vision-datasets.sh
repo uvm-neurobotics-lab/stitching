@@ -5,6 +5,8 @@
 # NOTE: Before running, you must do the following:
 #  - Replace the KAGGLE_USERNAME and KAGGLE_KEY with your own below.
 #  - Manually download this file and store it in ./data: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
+#  - Manually download SUN397 from this torrent: https://hyper.ai/en/datasets/5367
+#    (This can be done either before or after running this script.)
 #
 # These are some of the datasets used by the Task Vectors paper, and subsequent papers, to evaluate model merging. The
 # rest of the datasets used by this line of work can be acquired directly through Torchvision, but these few require
