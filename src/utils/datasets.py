@@ -451,6 +451,7 @@ class DTD(datasets.DTD):
                 f"but got {partition} instead"
             )
         self._partition = partition
+        self.loader = datasets.folder.default_loader
 
         # NOTE: Do not call the immediate superclass. Skip over it and call the "grandparent".
         super(datasets.DTD, self).__init__(root, transform=transform, target_transform=target_transform)
