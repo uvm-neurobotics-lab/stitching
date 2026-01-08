@@ -19,10 +19,19 @@
 set -e
 set -o pipefail
 
-pip install kaggle
 cd data
-export KAGGLE_USERNAME=neiltraft
-export KAGGLE_KEY=550514a731a19c14bdcf685830db9801
+
+if [ -f .env ]; then
+  source .env
+fi
+if [[ -z "$KAGGLE_KEY" ]]; then
+  echo "Error: KAGGLE_KEY is not set or is empty."
+  echo "Please create a .env file in the data/ folder with your Kaggle API key. See .env.example for an example."
+  exit 1
+fi
+
+pip install kaggle
+
 
 # stanford cars dataset (ref: https://github.com/pytorch/vision/issues/7545#issuecomment-2282674373)
 mkdir -p stanford_cars
@@ -36,7 +45,7 @@ Downloading Stanford Cars
 else
   echo """
 ==============================================================================
-Skipping Stanford Cars
+Skipping Stanford Cars - Already present
 ==============================================================================
 """
 fi
@@ -61,7 +70,7 @@ Downloading FER2013
 else
   echo """
 ==============================================================================
-Skipping FER2013
+Skipping FER2013 - Already present
 ==============================================================================
 """
 fi
@@ -102,7 +111,7 @@ WARNING: RESISC45 file not found
 else
     echo """
 ==============================================================================
-Skipping RESISC45
+Skipping RESISC45 - Already present
 ==============================================================================
 """
 fi
@@ -123,7 +132,7 @@ Downloading EuroSAT
 else
   echo """
 ==============================================================================
-Skipping EuroSAT
+Skipping EuroSAT - Already present
 ==============================================================================
 """
 fi
@@ -146,7 +155,7 @@ fi
 #else
 #  echo """
 #==============================================================================
-#Skipping SUN397
+#Skipping SUN397 - Already present
 #==============================================================================
 #"""
 #fi
