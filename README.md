@@ -18,11 +18,28 @@ However, many users will need to install PyTorch manually, based on their specif
     - _Note:_ The `wandb` package comes from the `conda-forge` channel: `conda install wandb -c conda-forge`
 
 For convenience, you may consider setting up a symlink to the folder that contains your datasets. Otherwise you must
-specify the `--data-path` when you run. For instance:
+specify the `--data-path` when you run. See the section on [Datasets](#datasets).
+
+## Datasets
+
+By default, we will look for datasets in a `data/` folder in the root of the repository. Before you begin, you should
+create this folder or a symlink to your actual dataset folder. For instance:
 ```shell
 cd stitching
 ln -s ~/datasets ./data
 ```
+
+For the basic stitching experiments from the original paper (_"Bridging Large Gaps in Neural Network Representations
+with Model Stitching"_), you will only need ImageNet-1k. This should be located at `data/imagenet/`.
+
+For model merging, run the following two scripts to set up datasets that are commonly used by model merging papers:
+- `src/download-merge-vision-datasets.sh`
+- `python src/configure_merge_vision_datasets.py`
+
+To use geospatial vision datasets, run the following scripts:
+- `src/download-geospatial-datasets.sh`
+- `python src/configure_geospatial_datasets.py`
+
 
 # Organization
 

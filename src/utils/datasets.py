@@ -481,6 +481,30 @@ class DTD(datasets.DTD):
         self._labels = [self.class_to_idx[cls] for cls in classes]
 
 
+class AID(datasets.ImageFolder):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
+        split = "train" if is_train else "test"
+        super().__init__(data_root / "AID" / split, transform=transform, target_transform=target_transform)
+
+        # Edit the class names.
+        idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
+        self.classes = [idx_to_class[i].replace("_", " ") for i in range(len(idx_to_class))]
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+
+
+class UCM(datasets.ImageFolder):
+    def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
+                 target_transform: Optional[Callable] = None):
+        split = "train" if is_train else "test"
+        super().__init__(data_root / "UCMerced_LandUse" / split, transform=transform, target_transform=target_transform)
+
+        # Edit the class names.
+        idx_to_class = dict((v, k) for k, v in self.class_to_idx.items())
+        self.classes = [idx_to_class[i].replace("_", " ") for i in range(len(idx_to_class))]
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+
+
 class EuroSAT(datasets.ImageFolder):
     def __init__(self, data_root: Path, is_train: bool, transform: Optional[Callable] = None,
                  target_transform: Optional[Callable] = None):

@@ -20,7 +20,7 @@ base_dir = Path("data")
 
 
 ### PROCESS SUN397 DATASET
-print("\nProcessing SUN397...")
+print("\nProcessing SUN397...\n")
 
 sun_src_dir = base_dir / "sun397"  # replace with the path to your dataset
 sun_dst_dir = base_dir / "sun397"  # replace with the path to the output directory
@@ -62,7 +62,7 @@ copy_sun_split_files(
 
 
 ### PROCESS EuroSAT_RGB DATASET
-print("\nProcessing EuroSAT...")
+print("\nProcessing EuroSAT...\n")
 
 eurosat_src_dir = base_dir / "eurosat" / "2750"  # replace with the path to your dataset
 eurosat_dst_dir = base_dir / "eurosat" / "splits"  # replace with the path to the output directory
@@ -106,7 +106,7 @@ split_eurosat(eurosat_src_dir, eurosat_dst_dir, classes)
 
 
 # PROCESS RESISC45 DATASET
-print("\nProcessing RESISC45...")
+print("\nProcessing RESISC45...\n")
 
 resisc_src_dir = base_dir / "resisc45"  # replace with the path to your dataset
 resisc_dst_dir = base_dir / "resisc45"  # replace with the path to the output directory
