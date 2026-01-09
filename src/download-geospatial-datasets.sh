@@ -30,7 +30,7 @@ pip install kaggle
 
 # Aerial Image Dataset
 # https://www.kaggle.com/datasets/jiayuanchengala/aid-scene-classification-datasets
-if [ -z "$(ls -A AID)" ]; then  # Only proceed if directory is empty.
+if [ ! -d AID ] || [ -z "$(ls -A AID)" ]; then  # Only proceed if directory is empty.
   echo """
 ==============================================================================
 Downloading AID
@@ -47,7 +47,7 @@ fi
 
 # UC Merced Land Use Dataset
 # http://weegee.vision.ucmerced.edu/datasets/landuse.html
-if [ -z "$(ls -A UCMerced_LandUse)" ]; then  # Only proceed if directory is empty.
+if [ ! -d UCMerced_LandUse ] || [ -z "$(ls -A UCMerced_LandUse)" ]; then  # Only proceed if directory is empty.
   echo """
 ==============================================================================
 Downloading UCM Land Use
