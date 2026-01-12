@@ -76,14 +76,14 @@ mkdir -p fmow
 if [ -z "$(ls -A fmow)" ]; then  # Only proceed if directory is empty.
   echo """
 ==============================================================================
-Downloading UCM Land Use
+Downloading FMoW
 ==============================================================================
 """
   aws s3 cp s3://spacenet-dataset/Hosted-Datasets/fmow/fmow-rgb/ ./data/fmow/ --recursive
 else
   echo """
 ==============================================================================
-Skipping UCM Land Use - Already present
+Skipping FMoW - Already present
 ==============================================================================
 """
 fi
