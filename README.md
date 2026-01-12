@@ -32,15 +32,17 @@ ln -s ~/datasets ./data
 For the basic stitching experiments from the original paper (_"Bridging Large Gaps in Neural Network Representations
 with Model Stitching"_), you will only need ImageNet-1k. This should be located at `data/imagenet/`.
 
-For model merging, run the following two scripts to set up datasets that are commonly used by model merging papers
-(make sure you activate the appropriate python environment before running):
-- `src/download-merge-vision-datasets.sh`
-- `python src/configure_merge_vision_datasets.py`
+For model merging, do the following to set up datasets that are commonly used by model merging papers:
+1. Follow the prerequisite steps described at the top of [src/download-merge-vision-datasets.sh](src/download-merge-vision-datasets.sh).
+1. Activate your Python environment if you haven't already.
+1. Run: `src/download-merge-vision-datasets.sh`
+1. Run: `python src/configure_merge_vision_datasets.py`
 
-To use geospatial vision datasets, run the following scripts(make sure you activate the appropriate python environment
-before running):
-- `src/download-geospatial-datasets.sh`
-- `python src/configure_geospatial_datasets.py`
+To use geospatial vision datasets, do the following:
+1. Follow the prerequisite steps described at the top of [src/download-geospatial-datasets.sh](src/download-geospatial-datasets.sh).
+1. Activate your Python environment if you haven't already.
+1. Run: `src/download-geospatial-datasets.sh`
+1. Run: `python src/configure_geospatial_datasets.py`
 
 
 # Organization

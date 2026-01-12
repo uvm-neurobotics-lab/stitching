@@ -28,13 +28,9 @@ cd data
 if [ -f .env ]; then
   source .env
 fi
-if [[ -z "$KAGGLE_KEY" ]]; then
-  echo "Error: KAGGLE_KEY is not set or is empty."
-  echo "Please create a .env file in the data/ folder with your Kaggle API key. See .env.example for an example."
-  exit 1
+if [[ -z "$(which kaggle)" ]]; then
+  pip install kaggle
 fi
-
-pip install kaggle
 
 
 # stanford cars dataset (ref: https://github.com/pytorch/vision/issues/7545#issuecomment-2282674373)
