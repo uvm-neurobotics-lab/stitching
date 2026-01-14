@@ -11,10 +11,13 @@
 # TO RUN:
 #
 # Before running, you must do the following:
-#  - Set your KAGGLE_USERNAME and KAGGLE_KEY in the terminal or in the ./data/.env file (see .env.example).
+#  - Ensure the `kaggle` CLI can run with your Kaggle credentials.
+#      - One option is to provide your KAGGLE_USERNAME and KAGGLE_KEY in the terminal or in the ./data/.env file (see
+#        .env.example).
 #  - Manually download this file and store it in ./data: https://1drv.ms/u/s!AmgKYzARBl5ca3HNaHIlzp_IXjs
 #  - Manually download SUN397 from this torrent: https://hyper.ai/en/datasets/5367
 #    (This can be done either before or after running this script.)
+#
 # After running, run the following to complete setup:
 #  - python src/configure_merge_vision_datasets.py
 ###
