@@ -763,7 +763,7 @@ def _make_wilds_dataset(name, data_root, preprocess_config=None):
     test_transform = build_image_transform(is_train=False, **preprocess_config)
     testset = dataset.get_subset("test", transform=test_transform)
 
-    return trainset, testset, get_data_dims(trainset), len(dataset.n_classes)
+    return trainset, testset, get_data_dims(trainset), dataset.n_classes
 
 
 def _make_datasets(name, data_root, preprocess_config=None):
