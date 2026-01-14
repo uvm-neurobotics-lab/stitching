@@ -40,7 +40,7 @@ def main(argv=None):
         print(f'=== {dataset} ===')
         wilds.get_dataset(
             dataset=dataset,
-            root_dir=config.root_dir,
+            root_dir=config.data_path,
             unlabeled=config.unlabeled,
             download=True)
 
