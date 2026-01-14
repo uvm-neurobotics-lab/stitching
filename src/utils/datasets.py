@@ -752,14 +752,31 @@ def _dataset_name_remapping(name):
     return remap.get(name, name)
 
 
+def _make_wilds_dataset(name, data_root, preprocess_config=None):
+    import wilds  # Local import, to make the WILDS install optional.
+
+    dataset = wilds.get_dataset(dataset=name, root_dir=data_root, download=True)
+
+    train_transform = build_image_transform(is_train=True, **preprocess_config)
+    trainset = dataset.get_subset("train", transform=train_transform)
+
+    test_transform = build_image_transform(is_train=False, **preprocess_config)
+    testset = dataset.get_subset("test", transform=test_transform)
+
+    return trainset, testset, get_data_dims(trainset), len(dataset.n_classes)
+
+
 def _make_datasets(name, data_root, preprocess_config=None):
     name = _dataset_name_remapping(name)
     preprocess_config = _ensure_default_preprocess_config(name, preprocess_config)
 
-    # Will raise a readable error if the dataset is unrecognized.
-    trainset = _find_and_make_dataset(name, data_root, True, preprocess_config=preprocess_config)
-    testset = _find_and_make_dataset(name, data_root, False, preprocess_config=preprocess_config)
-    return trainset, testset, get_data_dims(trainset), len(trainset.classes)
+    if name == "fmow":
+        return _make_wilds_dataset(name, data_root)
+    else:
+        # Will raise a readable error if the dataset is unrecognized.
+        trainset = _find_and_make_dataset(name, data_root, True, preprocess_config=preprocess_config)
+        testset = _find_and_make_dataset(name, data_root, False, preprocess_config=preprocess_config)
+        return trainset, testset, get_data_dims(trainset), len(trainset.classes)
 
 
 def make_datasets(
