@@ -20,3 +20,4 @@ dependencies:
       - torchvision
       - pyyaml-include  # optional
       - timm  # optional
+      - wilds  # only needed for WILDS datasets
