@@ -2,7 +2,7 @@
 If you want to use one of the WILDS dataset, first download it with this script.
 
 Example:
-    python src/download_wilds_datasets.py --root-dir data --datasets fmow poverty
+    python src/download_wilds_datasets.py --datasets fmow poverty
 """
 import argparse
 from pathlib import Path
