@@ -771,7 +771,7 @@ def _make_datasets(name, data_root, preprocess_config=None):
     preprocess_config = _ensure_default_preprocess_config(name, preprocess_config)
 
     if name == "fmow":
-        return _make_wilds_dataset(name, data_root)
+        return _make_wilds_dataset(name, data_root, preprocess_config)
     else:
         # Will raise a readable error if the dataset is unrecognized.
         trainset = _find_and_make_dataset(name, data_root, True, preprocess_config=preprocess_config)
