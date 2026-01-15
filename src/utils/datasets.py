@@ -754,14 +754,21 @@ def _dataset_name_remapping(name):
 
 def _make_wilds_dataset(name, data_root, preprocess_config=None):
     import wilds  # Local import, to make the WILDS install optional.
+    from wilds.datasets.wilds_dataset import WILDSSubset
+
+    class SubsetWithoutMeta(WILDSSubset):
+        def __getitem__(self, idx):
+            return super().__getitem__(idx)[:2]  # return only (x, y), not (x, y, metadata)
 
     dataset = wilds.get_dataset(dataset=name, root_dir=data_root, download=True)
 
     train_transform = build_image_transform(is_train=True, **preprocess_config)
     trainset = dataset.get_subset("train", transform=train_transform)
+    trainset = SubsetWithoutMeta(trainset.dataset, trainset.indices, trainset.transform, trainset.do_transform_y)
 
     test_transform = build_image_transform(is_train=False, **preprocess_config)
     testset = dataset.get_subset("test", transform=test_transform)
+    testset = SubsetWithoutMeta(testset.dataset, testset.indices, testset.transform, testset.do_transform_y)
 
     return trainset, testset, get_data_dims(trainset), dataset.n_classes
 
