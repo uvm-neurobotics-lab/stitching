@@ -2,6 +2,7 @@
 Provides functions to load a (possibly pre-trained) segment of a model.
 """
 import os
+from pathlib import Path
 
 import torch
 import torchvision
@@ -462,16 +463,45 @@ def load_satlas_model(model_name, pretrained=True):
     return model
 
 
+def load_retccl(pretrained=True, ckp_path=None):
+    """
+    A function to load RetCCL, a ResNet-50 architecture pre-trained on medical imagery.
+    https://github.com/Xiyue-Wang/RetCCL
+    """
+    import gdown
+    model = torchvision.models.resnet50()
+
+    if pretrained:
+        if not ckp_path:
+            # By default, cache in the retccl/ directory with a filename matching the URL.
+            ckp_path = str(Path.home() / ".cache/retccl/best_ckpt.pth")
+        if Path(ckp_path).is_file():
+            # gdown.download(..., resume=True) already does this for us, but unfortunately it still needs to query a
+            # bunch of redirects to do it! So we add an extra clause here to avoid any internet access unless needed.
+            print(f"Loading weights from cached checkpoint: {ckp_path}")
+            weights_path = ckp_path
+        else:
+            weights_path = gdown.download(id="1Sn0kYwkXp7eqdIPUTFtK_ilz5ThApOsn", output=ckp_path, resume=True)
+        state_dict = torch.load(weights_path, map_location="cpu")
+        # Load non-strict because these weights do not include the final FC layer.
+        model.load_state_dict(state_dict, strict=False)
+
+    return model
+
+
 def load_model(model_name, backend="pytorch", pretrained=True, ckp_path=None, verbose=False):
     # Fetch the model architecture and (optionally) weights.
     fetch_pretrained = pretrained and not ckp_path
-    if backend == 'timm':
+    if backend == "timm":
         import timm  # Local import to make it optional.
         model = timm.create_model(model_name, pretrained=fetch_pretrained, scriptable=True)
-    elif backend == 'satlas':
+    elif backend == "satlas":
         model = load_satlas_model(model_name, pretrained=fetch_pretrained)
-    elif backend == 'pytorch':
-        model = torchvision.models.get_model(model_name, pretrained=fetch_pretrained)
+    elif backend == "pytorch" or (not backend):
+        if model_name == "retccl":
+            model = load_retccl(pretrained=fetch_pretrained)
+        else:
+            model = torchvision.models.get_model(model_name, pretrained=fetch_pretrained)
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
 
@@ -479,13 +509,13 @@ def load_model(model_name, backend="pytorch", pretrained=True, ckp_path=None, ve
     if ckp_path is not None:
         if os.path.isfile(ckp_path):
             if verbose:
-                print(f'Loading checkpoint from: {ckp_path}')
-            state_dict = torch.load(ckp_path, map_location='cpu')
+                print(f"Loading checkpoint from: {ckp_path}")
+            state_dict = torch.load(ckp_path, map_location="cpu")
             missing_keys = model.load_state_dict(state_dict, strict=False)
             if verbose:
                 print(missing_keys)
         else:
-            raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
+            raise FileNotFoundError(f"Checkpoint path does not exist: {ckp_path}")
 
     return model
 
