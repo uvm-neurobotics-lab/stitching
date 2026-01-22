@@ -481,6 +481,7 @@ def load_retccl(pretrained=True, ckp_path=None):
             print(f"Loading weights from cached checkpoint: {ckp_path}")
             weights_path = ckp_path
         else:
+            Path(ckp_path).parent.mkdir(parents=True, exist_ok=True)
             weights_path = gdown.download(id="1Sn0kYwkXp7eqdIPUTFtK_ilz5ThApOsn", output=ckp_path, resume=True)
         state_dict = torch.load(weights_path, map_location="cpu")
         # Load non-strict because these weights do not include the final FC layer.
