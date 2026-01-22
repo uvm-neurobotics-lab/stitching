@@ -3,7 +3,6 @@ Provides functions to load a (possibly pre-trained) segment of a model.
 """
 import os
 
-import timm
 import torch
 import torchvision
 
@@ -429,39 +428,64 @@ def listify(block_spec):
     return block_spec
 
 
+def load_satlas_model(model_name, pretrained=True):
+    """
+    A function to load the SatlasPretrain model from Allen AI Institute.
+
+    Possible model choices can be found at: https://github.com/allenai/satlaspretrain_models/tree/main?tab=readme-ov-file#available-pretrained-models
+    """
+    from huggingface_hub import hf_hub_download  # Local import to make it optional.
+
+    file_name = model_name.lower() + ".pth"
+
+    # The weight dicts are based on the Torchvision architectures so we need to load from there.
+    if "swinb" in file_name:
+        model = torchvision.models.swin_transformer.swin_v2_b()
+    elif "swint" in file_name:
+        model = torchvision.models.swin_transformer.swin_v2_t()
+    elif "resnet50" in file_name:
+        model = torchvision.models.resnet50()
+    elif "resnet152" in file_name:
+        model = torchvision.models.resnet152()
+    else:
+        raise ValueError(f"Unrecognized Satlas model architecture: {model_name}")
+
+    if pretrained:
+        weights_path = hf_hub_download(repo_id="allenai/satlas-pretrain", filename=file_name)
+        state_dict = torch.load(weights_path, map_location="cpu")
+        # Extract just the backbone parameters from the full state dict.
+        backbone_prefix = "backbone.resnet." if "resnet" in file_name else "backbone.backbone."
+        backbone_state_dict = {k[len(backbone_prefix):]: v for k, v in state_dict.items()
+                               if k.startswith(backbone_prefix)}
+        model.load_state_dict(backbone_state_dict)
+
+    return model
+
+
 def load_model(model_name, backend="pytorch", pretrained=True, ckp_path=None, verbose=False):
+    # Fetch the model architecture and (optionally) weights.
+    fetch_pretrained = pretrained and not ckp_path
     if backend == 'timm':
-        if ckp_path is not None:
-            model = timm.create_model(model_name, pretrained=False, scriptable=True)
-            if os.path.isfile(ckp_path):
-                if verbose:
-                    print(f'Loading checkpoint from: {ckp_path}')
-                state_dict = torch.load(ckp_path, map_location='cpu')
-                missing_keys = model.load_state_dict(state_dict, strict=False)
-                if verbose:
-                    print(missing_keys)
-            else:
-                raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
-        else:
-            model = timm.create_model(model_name, pretrained=pretrained, scriptable=True)
-
+        import timm  # Local import to make it optional.
+        model = timm.create_model(model_name, pretrained=fetch_pretrained, scriptable=True)
+    elif backend == 'satlas':
+        model = load_satlas_model(model_name, pretrained=fetch_pretrained)
     elif backend == 'pytorch':
-        if ckp_path is not None:
-            model = torchvision.models.get_model(model_name, pretrained=False)
-            if os.path.isfile(ckp_path):
-                if verbose:
-                    print(f'Loading checkpoint from: {ckp_path}')
-                state_dict = torch.load(ckp_path, map_location='cpu')
-                missing_keys = model.load_state_dict(state_dict, strict=False)
-                if verbose:
-                    print(missing_keys)
-            else:
-                raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
-        else:
-            model = torchvision.models.get_model(model_name, pretrained=pretrained)
-
+        model = torchvision.models.get_model(model_name, pretrained=fetch_pretrained)
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
+
+    # Load custom weights.
+    if ckp_path is not None:
+        if os.path.isfile(ckp_path):
+            if verbose:
+                print(f'Loading checkpoint from: {ckp_path}')
+            state_dict = torch.load(ckp_path, map_location='cpu')
+            missing_keys = model.load_state_dict(state_dict, strict=False)
+            if verbose:
+                print(missing_keys)
+        else:
+            raise FileNotFoundError(f'Checkpoint path does not exist: {ckp_path}')
 
     return model
 

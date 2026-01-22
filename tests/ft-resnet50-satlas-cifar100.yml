@@ -1,0 +1,49 @@
+#
+# Take a ResNet-50 which was pretrained using SatlasPretrain, and finetune it for CIFAR100.
+#
+
+model:
+  Assembly:
+    parts:
+    - Subnet:
+        backend: satlas
+        model_name: sentinel2_resnet50_si_rgb
+        pretrained: true
+        block_input: x
+        in_format: img
+        block_output: layer4
+        out_format: [img, [2048, 7, 7]]
+    head:
+      ClassifierHead: {}
+
+save_checkpoints: true
+
+train_config:
+  # Dataset
+  dataset: cifar100
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 6
+
+  # Optimization
+  batch_size: 64  # assuming 2 GPU, so effective batch size = 128
+  loss_fn: cross_entropy
+  # TODO: consider adding label smoothing:
+#  loss_fn_args:
+#    label_smoothing: 0.1
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 1.0e-3
+    weight_decay: 0.1
