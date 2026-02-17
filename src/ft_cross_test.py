@@ -268,8 +268,8 @@ def setup_and_test(parser, args, run_config):
     encoder_configs = []
     for cfg_file in run_config["ft_configs"]:
         ecfg = stitch_train.prep_config(parser, argparse.Namespace(config=cfg_file, save_dir=Path(cfg_file).parent,
-                                                                   data_path=run_config["data_path"],
-                                                                   max_batches=run_config["max_batches"], verbose=0,
+                                                                   data_path=run_config["data_path"], verbose=0,
+                                                                   max_batches=run_config.get("max_batches"),
                                                                    seed=run_config["seed"], smoke_test=args.smoke_test))
         ecfg["loaded_from"] = cfg_file
         encoder_configs.append(ecfg)

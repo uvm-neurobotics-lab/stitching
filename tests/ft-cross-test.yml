@@ -3,8 +3,28 @@
 #
 
 ft_configs:
-  - experiments/finetune-tests/pcam/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/aid/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/cars/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/cifar10/lr-1e-3-bs-128/config.yml
   - experiments/finetune-tests/cifar100/lr-1e-3-bs-128-epochs-10/config.yml
+  - experiments/finetune-tests/dtd/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/emnist/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/eurosat/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/fashion-mnist/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/fer2013/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/flowers/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/fmow/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/food101/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/gtsrb/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/kmnist/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/mnist/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/oxford-pets/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/pcam/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/renderedsst2/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/resisc45/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/sun397/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/svhn/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/ucm/lr-1e-3-bs-128/config.yml
 
 seed: 12345
 # Optionally, specify metrics to record for all evaluations.
