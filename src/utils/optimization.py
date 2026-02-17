@@ -4,7 +4,7 @@ Utilities for optimization.
 import torch
 from torch.optim.lr_scheduler import _LRScheduler
 
-from utils import get_matching_module, function_from_name
+from utils import ensure_config_param, get_matching_module, function_from_name, gte_zero, of_type
 
 
 class DummyScheduler(_LRScheduler):
@@ -95,6 +95,21 @@ def create_aux_loss_fn(model, output_module_name, loss_fn):
     return AuxLossFn(mod, loss_fn)
 
 
+def check_aux_loss_config(config):
+    """ Validate the config to be parsed by `loss_fns_from_config()`. """
+    ensure_config_param(config, "aux_losses", of_type(list), required=False)
+    for i, elem in enumerate(config.get("aux_losses", [])):
+        if not isinstance(elem, dict):
+            raise RuntimeError('Each item in "aux_losses" should be a config with two elements.'
+                               f" Instead, we found a {type(elem)} in position {i}.")
+        try:
+            ensure_config_param(elem, "output", of_type(str))
+            ensure_config_param(elem, "loss_fn", of_type(str))
+            ensure_config_param(elem, "weight", gte_zero, required=False)
+        except RuntimeError as e:
+            raise RuntimeError(f'In position {i} of "aux_losses": {str(e)}')
+
+
 def loss_fns_from_config(config, model):
     """
     Returns a dictionary of all named loss functions, as specified by the given config. Multi-loss training can be
@@ -144,6 +159,21 @@ class MetricFn:
     def hook(self, module, args, output):
         # Every time the output module runs forward, we save the output.
         self.output = output
+
+
+def check_metrics_config(config):
+    """ Validate the config to be parsed by `check_metrics_config()`. """
+    ensure_config_param(config, "metrics", of_type(list), [{"metric_fn": "accuracy"}])
+    for i, elem in enumerate(config.get("metrics", [])):
+        if not isinstance(elem, dict):
+            raise RuntimeError('Each item in "metrics" should be a sub-config (a dict).'
+                               f" Instead, we found a {type(elem)} in position {i}.")
+        try:
+            ensure_config_param(elem, "metric_fn", of_type(str))
+            ensure_config_param(elem, "metric_fn_args", of_type(dict), required=False)
+            ensure_config_param(elem, "output", of_type(str), required=False)
+        except RuntimeError as e:
+            raise RuntimeError(f'In position {i} of "metrics": {str(e)}')
 
 
 def metric_fns_from_config(config, model):

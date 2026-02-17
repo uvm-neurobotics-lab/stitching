@@ -21,6 +21,7 @@ except ImportError:
     wandb = None
 
 import utils.distributed as dist
+from utils import make_pretty
 
 
 class SmoothedValue:
@@ -322,7 +323,7 @@ class BaseLog:
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
                 "epoch": epoch,
-                "config": config,
+                "config": make_pretty(config),
             }
             dist.save_on_master(checkpoint, save_path)
             dist.save_on_master(checkpoint, self.save_dir / "checkpoint.pth")

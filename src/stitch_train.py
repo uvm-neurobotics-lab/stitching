@@ -223,17 +223,15 @@ def prep_config(parser, args):
         config["train_config"]["max_batches"] = 3 * int(os.environ.get("WORLD_SIZE", 1))
         config["train_config"]["epochs"] = 1
 
-    config = validate_config(config)
-
-    resfile = get_result_file(config)
-    if resfile.exists():
-        logging.warning(f"WARNING: Will overwrite existing result file: {resfile}")
-
-    return config
+    return validate_config(config)
 
 
 def setup_and_train(parser, config):
     """ Setup distributed processing, setup W&B, load data, load model, and commence training. """
+    resfile = get_result_file(config)
+    if resfile.exists():
+        logging.warning(f"WARNING: Will overwrite existing result file: {resfile}")
+
     dist.init_distributed_mode(config)
 
     device = argutils.get_device(parser, config)
@@ -267,12 +265,11 @@ def setup_and_train(parser, config):
     raw_metrics = training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
 
     pe_metrics = training.per_epoch_metrics(raw_metrics)
-    save_results(pe_metrics, config)
+    save_results(pe_metrics, resfile)
     return 0
 
 
-def save_results(per_epoch_metrics, config):
-    resfile = get_result_file(config)
+def save_results(per_epoch_metrics, resfile):
     resfile.parent.mkdir(parents=True, exist_ok=True)
     logging.info(f"Saving results to: {str(resfile)}")
     per_epoch_metrics.to_pickle(resfile)

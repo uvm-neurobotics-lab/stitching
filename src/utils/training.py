@@ -19,8 +19,9 @@ except ImportError:
 
 from utils import ensure_config_param, make_pretty, restore_grad_state, gte_zero, _and, of_type, one_of
 from utils.logging import StandardLog
-from utils.optimization import (limit_model_optimization, loss_fns_from_config, metric_fns_from_config,
-                                optimizer_from_config, scheduler_from_config)
+from utils.optimization import (check_aux_loss_config, check_metrics_config, limit_model_optimization,
+                                loss_fns_from_config, metric_fns_from_config, optimizer_from_config,
+                                scheduler_from_config)
 
 
 def check_train_config(config: dict):
@@ -67,29 +68,8 @@ def check_train_config(config: dict):
                         required=False)
     ensure_config_param(config, ["train_config", "max_grad_norm"], gte_zero, 0)
 
-    ensure_config_param(config, ["train_config", "aux_losses"], of_type(list), required=False)
-    for i, elem in enumerate(config["train_config"].get("aux_losses", [])):
-        if not isinstance(elem, dict):
-            raise RuntimeError('Each item in "aux_losses" should be a config with two elements.'
-                               f" Instead, we found a {type(elem)} in position {i}.")
-        try:
-            ensure_config_param(elem, "output", of_type(str))
-            ensure_config_param(elem, "loss_fn", of_type(str))
-            ensure_config_param(elem, "weight", gte_zero, required=False)
-        except RuntimeError as e:
-            raise RuntimeError(f'In position {i} of "aux_losses": {str(e)}')
-
-    ensure_config_param(config, "metrics", of_type(list), [{"metric_fn": "accuracy"}])
-    for i, elem in enumerate(config.get("metrics", [])):
-        if not isinstance(elem, dict):
-            raise RuntimeError('Each item in "metrics" should be a sub-config (a dict).'
-                               f" Instead, we found a {type(elem)} in position {i}.")
-        try:
-            ensure_config_param(elem, "metric_fn", of_type(str))
-            ensure_config_param(elem, "metric_fn_args", of_type(dict), required=False)
-            ensure_config_param(elem, "output", of_type(str), required=False)
-        except RuntimeError as e:
-            raise RuntimeError(f'In position {i} of "metrics": {str(e)}')
+    check_aux_loss_config(config["train_config"])
+    check_metrics_config(config)
 
 
 def validate_config(config):
@@ -164,7 +144,6 @@ def as_training_metrics(metrics):
 
 def print_memory_stats(rank=None):
     import psutil
-    import subprocess
 
     GB = 1024 ** 3
 

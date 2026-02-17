@@ -1,0 +1,17 @@
+#
+# Compare heads and encoders which were fine-tuned for different datasets.
+#
+
+ft_configs:
+  - experiments/finetune-tests/pcam/lr-1e-3-bs-128/config.yml
+  - experiments/finetune-tests/cifar100/lr-1e-3-bs-128-epochs-10/config.yml
+
+seed: 12345
+# Optionally, specify metrics to record for all evaluations.
+# metrics:
+#   - metric_fn: cross_entropy
+#     metric_fn_args: [label_smoothing: 0.1]
+#   - metric_fn: topk_accuracy
+#     metric_fn_args: [topk: [1, 5]]
+#   - metric_fn: cosine_similarity
+#   - metric_fn: mse_loss
