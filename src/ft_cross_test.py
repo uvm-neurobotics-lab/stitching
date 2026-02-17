@@ -66,7 +66,7 @@ def create_arg_parser(desc, allow_abbrev=True):
     parser.add_argument("--deterministic", action="store_true", help="Use only deterministic algorithms.")
 
     # Other args.
-    # TODO: add option to evaluate full train set.
+    parser.add_argument("--eval-train-set", action="store_true", help="Evaluate the training set as well as test.")
     argutils.add_seed_arg(parser, default_seed=1)
     argutils.add_verbose_arg(parser)
     parser.add_argument("--st", "--smoke-test", dest="smoke_test", action="store_true",
@@ -128,11 +128,14 @@ def prep_config(parser, args):
 
     # This list governs which args can be overridden from the command line.
     config = argutils.load_config_from_args(parser, args, ["data_path", "output", "seed", "max_batches", "device",
-                                                           "workers", "deterministic", "verbose"])
+                                                           "eval_train_set", "workers", "deterministic", "verbose"])
 
     # Conduct a quick test.
     if args.smoke_test:
         config["max_batches"] = 3 * int(os.environ.get("WORLD_SIZE", 1))
+        config["eval_train_set"] = False
+        if config.get("ft_configs"):  # If not present, validation will flag the error.
+            config["ft_configs"] = config["ft_configs"][:1]
 
     return validate_config(config)
 
@@ -173,7 +176,8 @@ def test_one_encoder(run_config, encoder_config, model, model_without_ddp, train
 
     # HACK: We are using the logger to handle metric computation for us. Kinda hacky.
     metric_fns = metric_fns_from_config(run_config, model)
-    log = StandardLog(model=None, expected_steps=0, save_freq=0, checkpoint_initial_model=False, metric_fns=metric_fns)
+    log = StandardLog(model=None, expected_steps=0, save_freq=0, checkpoint_initial_model=False, metric_fns=metric_fns,
+                      eval_full_train_set=run_config.get("eval_train_set", False))
     log.maybe_save_and_eval(0, 0, model, train_loader, valid_loaders, None, None, run_config, device,
                             should_eval=True, should_save=False)
     return log.recorded_metrics
@@ -198,9 +202,6 @@ def test_one_dataset(run_config, head_config, encoder_cfgs, model, model_without
 
 def setup_and_test_one_dataset(device, run_config, head_config, encoder_configs):
     """ Sets up dataset and model before delegating to `test_one_dataset()`. """
-    logging.info("")
-    logging.info(f"------------ Evaluating head: {Path(head_config['loaded_from']).parent} ------------")
-
     logging.info(f"Loading dataset: {head_config['train_config']['dataset']}.")
     train_data, test_data, input_shape, num_classes = datasets.load_dataset_from_config(head_config)
 
@@ -276,7 +277,10 @@ def setup_and_test(parser, args, run_config):
 
     # For each model, evaluate head on top of all other models.
     records = []
-    for head_config in encoder_configs:
+    for i, head_config in enumerate(encoder_configs):
+        logging.info("")
+        logging.info(f"------------ Evaluating Head {i+1}/{len(encoder_configs)}: "
+                     f"{Path(head_config['loaded_from']).parent} ------------")
         records.extend(setup_and_test_one_dataset(device, run_config, head_config, encoder_configs))
 
     save_results(pd.DataFrame.from_records(records), resfile)
