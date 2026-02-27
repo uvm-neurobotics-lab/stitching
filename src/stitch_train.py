@@ -116,6 +116,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="Path of checkpoint to load pretrained weights from. Training will NOT be resumed from "
                         "the checkpoint, but rather will begin at --start-epoch. Mutually exclusive with "
                         "--resume-from.")
+    parser.add_argument("--non-strict", dest="strict_load", action="store_false",
+                        help="Use non-strict matching of weights when loading the checkpoint.")
     parser.add_argument("--test-only", dest="test_only", action="store_true", help="Only test the model.")
 
     # Distributed/hardware args.
@@ -194,9 +196,9 @@ def prep_config(parser, args):
     # This list governs which _top-level_ args can be overridden from the command line.
     config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
                                                            "eval_checkpoints", "checkpoint_initial_model", "load_from",
-                                                           "resume_from", "start_epoch", "test_only", "save_dir",
-                                                           "metrics_output", "id", "project", "entity", "group",
-                                                           "device", "workers", "deterministic", "verbose"])
+                                                           "resume_from", "strict_load", "start_epoch", "test_only",
+                                                           "save_dir", "metrics_output", "id", "project", "entity",
+                                                           "group", "device", "workers", "deterministic", "verbose"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')

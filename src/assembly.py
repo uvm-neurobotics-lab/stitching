@@ -2,7 +2,7 @@
 A class for assembling blocks and adapters into a single module.
 """
 import inspect
-from typing import Optional, Union
+from typing import Any, Mapping, Optional, Union
 
 import numpy as np
 import torch
@@ -451,6 +451,35 @@ class Assembly(nn.Module):
 
         self.in_fmt = get_in_fmt(self.parts[0])
         self.out_fmt = get_out_fmt(self.head) if self.head else get_out_fmt(self.parts[0])
+
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False, assign: bool = False):
+        """
+        Overloads `torch.nn.Module.load_state_dict()` to handle an optional special case:
+         - If the state dict did not come from another Assembly,
+         - and this assembly only has one subnet part,
+         - then we try to apply the state dict to this subpart in non-strict mode.
+
+        This handles the case where someone had pre-trained a net, and wants to replace this net with a new head. For
+        instance, you can pre-train a ResNet-50 from TIMM, and then load it into the following assembly:
+            Assembly:
+              parts:
+              - Subnet:
+                  backend: timm
+                  model_name: resnet50.a1_in1k
+                  block_input: x
+                  in_format: img
+                  block_output: layer4
+                  out_format: [img, [2048, 7, 7]]
+              head:
+                ClassifierHead: {}
+
+        """
+        if not strict:
+            has_parts = any(k.startswith("parts.") for k in state_dict)
+            if not has_parts and len(self.parts) == 1:
+                # Try to load this net as the only part.
+                return self.parts[0].load_state_dict(state_dict, False, assign)
+        return super().load_state_dict(state_dict, strict, assign)
 
     def trunk_forward(self, x, cur_fmt=None):
         if cur_fmt is None:

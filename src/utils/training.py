@@ -41,6 +41,7 @@ def check_train_config(config: dict):
     ensure_config_param(config, "checkpoint_initial_model", of_type(bool), required=False)
     ensure_config_param(config, "resume_from", of_type((str, Path)), required=False)
     ensure_config_param(config, "load_from", of_type((str, Path)), required=False)
+    ensure_config_param(config, "strict_load", of_type(bool), required=False)
     ensure_config_param(config, "test_only", of_type(bool), required=False)
     # If we are only testing, then weights must be supplied by one of these two methods.
     if config.get("test_only") and not ("resume_from" in config or "load_from" in config):
@@ -193,7 +194,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     if config.get("resume_from"):
         logging.info(f"Resuming checkpoint at {config['resume_from']}.")
         checkpoint = torch.load(config["resume_from"], map_location="cpu", weights_only=True)
-        model_without_ddp.load_state_dict(checkpoint["model"])
+        model_without_ddp.load_state_dict(checkpoint["model"], config.get("strict_load", True))
         if not config.get("test_only"):
             optimizer.load_state_dict(checkpoint["optimizer"])
             scheduler.load_state_dict(checkpoint["scheduler"])
@@ -201,7 +202,7 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
     elif config.get("load_from"):
         logging.info(f"Resuming checkpoint at {config['load_from']}.")
         checkpoint = torch.load(config["load_from"], map_location="cpu", weights_only=True)
-        model_without_ddp.load_state_dict(checkpoint["model"])
+        model_without_ddp.load_state_dict(checkpoint["model"], config.get("strict_load", True))
 
     # Set up progress/checkpoint logger.
     max_steps = train_config.get("max_steps", float("inf"))
