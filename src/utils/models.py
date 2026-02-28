@@ -1,6 +1,7 @@
 """
 Provides functions to load a (possibly pre-trained) segment of a model.
 """
+import logging
 import os
 from pathlib import Path
 
@@ -478,7 +479,7 @@ def load_retccl(pretrained=True, ckp_path=None):
         if Path(ckp_path).is_file():
             # gdown.download(..., resume=True) already does this for us, but unfortunately it still needs to query a
             # bunch of redirects to do it! So we add an extra clause here to avoid any internet access unless needed.
-            print(f"Loading weights from cached checkpoint: {ckp_path}")
+            logging.info(f"Loading weights from cached checkpoint: {ckp_path}")
             weights_path = ckp_path
         else:
             Path(ckp_path).parent.mkdir(parents=True, exist_ok=True)
@@ -510,11 +511,22 @@ def load_model(model_name, backend="pytorch", pretrained=True, ckp_path=None, ve
     if ckp_path is not None:
         if os.path.isfile(ckp_path):
             if verbose:
-                print(f"Loading checkpoint from: {ckp_path}")
-            state_dict = torch.load(ckp_path, map_location="cpu")
-            missing_keys = model.load_state_dict(state_dict, strict=False)
+                logging.info(f"Loading checkpoint from: {ckp_path}")
+            state_dict = torch.load(ckp_path, map_location="cpu", weights_only=True)
+            if "model" in state_dict:
+                state_dict = state_dict["model"]
+            # Special case: if we find this prefix on any of the keys, assume that this is a Net nested inside an
+            # Assembly, and we actually just want to pull out the inner Net. So, edit the keys to drop this prefix.
+            assembly_prefix = "parts.0.net."
+            if any(k.startswith(assembly_prefix) for k in state_dict):
+                state_dict = {k[len(assembly_prefix):]: v for k, v in state_dict.items()
+                              if k.startswith(assembly_prefix)}
+            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
             if verbose:
-                print(missing_keys)
+                if missing_keys:
+                    logging.warning(f"Missing keys: {missing_keys}")
+                if unexpected_keys:
+                    logging.warning(f"Unexpected keys: {unexpected_keys}")
         else:
             raise FileNotFoundError(f"Checkpoint path does not exist: {ckp_path}")
 
