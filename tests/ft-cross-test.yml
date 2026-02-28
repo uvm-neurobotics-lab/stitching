@@ -20,7 +20,6 @@ ft_configs:
   - experiments/finetune-tests/mnist/lr-1e-3-bs-128/config.yml
   - experiments/finetune-tests/oxford-pets/lr-1e-3-bs-128/config.yml
   - experiments/finetune-tests/pcam/lr-1e-3-bs-128/config.yml
-  - experiments/finetune-tests/renderedsst2/lr-1e-3-bs-128/config.yml
   - experiments/finetune-tests/resisc45/lr-1e-3-bs-128/config.yml
   - experiments/finetune-tests/sun397/lr-1e-3-bs-128/config.yml
   - experiments/finetune-tests/svhn/lr-1e-3-bs-128/config.yml
