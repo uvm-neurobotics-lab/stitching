@@ -230,7 +230,7 @@ def conv3x3(src_format, dest_format, num_downsamples):
 def block(src_format, dest_format, num_downsamples, kind=None, **kwargs):
     if kind is None:
         imglike = is_imagelike(src_format, dest_format)
-        kind = "ResNetBasicBlock" if imglike else "AdapterTransformerBlock"
+        kind = "ResNetBasicBlock" if imglike else "VisionTransformerBlock"
     else:
         imglike = (kind == "ResNetBasicBlock" or kind == "ResNetBottleneck")
     return make_adapter_series(src_format, dest_format, num_downsamples, kind, imglike=imglike, **kwargs)

@@ -217,6 +217,8 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
     """
     def __init__(self, num_heads: int = 6, embed_dim: int = 384, mlp_ratio: float = 4., dropout: float = 0.,
                  attention_dropout: float = 0., in_format=None):
+        if in_format:
+            embed_dim = in_format[1][0]
         super().__init__(
             num_heads=num_heads,
             hidden_dim=embed_dim,
@@ -224,50 +226,10 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
             dropout=dropout,
             attention_dropout=attention_dropout,
         )
-        if in_format and in_format[0] != "bert":
-            raise RuntimeError(f"VisionTransformer format must be 'bert', but instead got '{in_format[0]}'.")
+        if in_format and (in_format[0] != "bert" and in_format[0] != "token"):
+            raise RuntimeError(f"VisionTransformer format must be a 1D sequence, but instead got '{in_format[0]}'.")
         self.in_fmt = in_format if in_format else "bert"
-        self.out_fmt = "bert"
-
-
-class MLPBlock(torchvision.ops.MLP):
-    """Transformer MLP block."""
-    def __init__(self, in_channels: int, hidden_channels: List[int], dropout: float):
-        super().__init__(in_channels, hidden_channels, activation_layer=nn.GELU, inplace=None, dropout=dropout)
-
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.normal_(m.bias, std=1e-6)
-
-
-class AdapterTransformerBlock(torchvision.models.vision_transformer.EncoderBlock):
-    """
-    Similar to an encoder block from ViT, but allows `in_channels` and `out_channels` to differ. Default values
-    designed to match ViT-Small.
-      - For ViT-Tiny:  num_heads=3,  in_channels=192
-      - For ViT-Small: num_heads=6,  in_channels=384
-      - For ViT-Base:  num_heads=12, in_channels=768
-      - For ViT-Large: num_heads=16, in_channels=1024
-    """
-    def __init__(self, num_heads: int = 6, in_channels: int = 384, out_channels: Optional[int] = None,
-                 mlp_ratio: float = 4., dropout: float = 0., attention_dropout: float = 0., in_format=None):
-        mlp_dim = int(in_channels * mlp_ratio)
-        super().__init__(
-            num_heads=num_heads,
-            hidden_dim=in_channels,
-            mlp_dim=mlp_dim,
-            dropout=dropout,
-            attention_dropout=attention_dropout,
-        )
-        if in_format and in_format[0] != "bert":
-            raise RuntimeError(f"VisionTransformer format must be 'bert', but instead got '{in_format[0]}'.")
-        self.in_fmt = in_format if in_format else "bert"
-        self.out_fmt = "bert"
-
-        # HACK: replace the MLP with one that has the desired number of outputs.
-        self.mlp = MLPBlock(in_channels, [mlp_dim, out_channels], dropout)
+        self.out_fmt = in_format if in_format else "bert"
 
 
 class SimpleAdapter(nn.Module):
