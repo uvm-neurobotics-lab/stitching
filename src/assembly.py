@@ -88,6 +88,9 @@ def img2bert(x, **kwargs):
 
 
 def to_square_img_size(size_1d):
+    if isinstance(size_1d, (tuple, list)):
+        assert len(size_1d) == 1
+        size_1d = size_1d[0]
     img_sz = int(np.sqrt(size_1d))
     if size_1d != img_sz ** 2:
         raise RuntimeError(f"Sequence length ({size_1d}) must be a perfect square to transform to image format.")
@@ -162,7 +165,7 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, tuple, list], target_fmt: Opti
     target_sz = None
     if not isinstance(target_fmt, str):
         target_fmt, target_sz = target_fmt
-        if isinstance(target_sz, int):
+        if isinstance(target_sz, int) or (isinstance(target_sz, (tuple, list)) and len(target_sz) == 1):
             # If a 1D size is requested, determine the equivalent square image size.
             target_sz = to_square_img_size(target_sz)
         elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 2:
@@ -236,11 +239,12 @@ def part_forward(part, x, cur_fmt, reformat_options=None, part_index=None):
     """
     try:  # Main function body.
 
-        x = reformat(x, cur_fmt, get_in_fmt(part), reformat_options)  # Convert to the format requested by part.
+        in_fmt = get_in_fmt(part)
+        x = reformat(x, cur_fmt, in_fmt, reformat_options)  # Convert to the format requested by part.
         # The part may have support for built-in format-tracking. (E.g., if we have nested Assemblies.) In which
         # case, we do not need to update the format manually.
         if "cur_fmt" in inspect.signature(part.forward).parameters:
-            x, cur_fmt = part(x, cur_fmt)  # Execute the part.
+            x, cur_fmt = part(x, in_fmt)  # Execute the part.
         else:
             x = part(x)  # Execute the part.
             cur_fmt = get_out_fmt(part, cur_fmt)  # Update the format; if None, then format is unchanged.
@@ -516,7 +520,7 @@ class ParallelPart(nn.Module):
         self.agg = agg
         self.in_fmt = in_format
         self.out_fmt = out_format
-        if len(out_format) != 2 or len(out_format[1]) != 3:
+        if len(out_format) != 2 or len(out_format[1]) not in (2, 3):
             raise RuntimeError("Output format must be fully specified for ParallelAdapter. "
                                f"Instead we got: {out_format}")
         self.reformat_options = reformat_options
@@ -556,13 +560,13 @@ class ParallelPart(nn.Module):
         elif self.agg == "concat":
 
             # Convert formats and ensure number of channels adds up to the expected amount.
+            # Ensure that everything other than the channels are converted to the expected format.
+            target_fmt = [self.out_fmt[0], self.out_fmt[1][1:]]  # Drop channels from target format.
             total_channels = 0
             for i, res in enumerate(results):
                 # Count the number of channels in each output.
                 _, num_channels, _ = parse_format_from_tensor(*res)
                 total_channels += num_channels
-                # Ensure that everything other than the channels are converted to the expected format.
-                target_fmt = [self.out_fmt[0], self.out_fmt[1][1:]]  # Drop channels from target format.
                 res[0] = reformat(res[0], res[1], target_fmt, self.reformat_options)
             if total_channels != self.out_fmt[1][0]:
                 msg = (f"Expected the total number of channels to be {self.out_fmt[1][0]}, but instead got "
@@ -572,7 +576,13 @@ class ParallelPart(nn.Module):
                 raise RuntimeError(msg)
 
             # Now we can stack the outputs on the channel dimension.
-            x = torch.concat([r[0] for r in results], dim=1)
+            if target_fmt[0] == "img":
+                channel_dim = 1
+            elif target_fmt[0] == "bhwc":
+                channel_dim = 3
+            else:
+                channel_dim = 2
+            x = torch.concat([r[0] for r in results], dim=channel_dim)
 
         else:
             raise RuntimeError(f"Unrecognized aggregation function: {self.agg}")

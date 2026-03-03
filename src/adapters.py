@@ -269,8 +269,10 @@ class SimpleAdapter(nn.Module):
                     ichans = ochans
 
         else:
-            if in_format and in_format[0] != "img":
-                raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{in_format[0]}'.")
+            if in_format:
+                infmt_type = in_format if isinstance(in_format, str) else in_format[0]
+                if infmt_type != "img":
+                    raise RuntimeError(f"Format for conv-based adapter must be 'img', but instead got '{infmt_type}'.")
             self.in_fmt = in_format if in_format else "img"
             self.out_fmt = "img"
             if leading_norm:
