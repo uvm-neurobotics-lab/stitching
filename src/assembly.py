@@ -94,8 +94,7 @@ def to_square_img_size(size_1d):
     img_sz = int(np.sqrt(size_1d))
     if size_1d != img_sz ** 2:
         raise RuntimeError(f"Sequence length ({size_1d}) must be a perfect square to transform to image format.")
-    size_1d = (img_sz, img_sz)
-    return size_1d
+    return img_sz, img_sz
 
 
 TRANSFORM = {
@@ -112,6 +111,54 @@ TRANSFORM = {
 }
 
 
+def convert_size_format(fmt, sz):
+    if sz is None:
+        return sz
+
+    if fmt == "bert" or fmt == "token":
+        # If we are targeting a 1D format just use an int. 1D size = H*W.
+        if not isinstance(sz, int):
+            return sz[0] if len(sz) == 1 else (sz[0] * sz[1])
+    else:
+        # Otherwise assume we're targeting a 2D format.
+        if isinstance(sz, int):
+            return to_square_img_size(sz)
+        elif len(sz) == 1:
+            return to_square_img_size(sz[0])
+
+    return sz
+
+
+def parse_format(fmt):
+    ch = None
+    sz = None
+
+    if not isinstance(fmt, str):
+        fmt, sz = fmt
+        if isinstance(sz, int) or (isinstance(sz, (tuple, list)) and len(sz) == 1):
+            # If a 1D size is requested but we're targeting a 2D format, determine the equivalent square image size.
+            if fmt == "img" or fmt == "bhwc":
+                sz = to_square_img_size(sz)
+        elif isinstance(sz, (tuple, list)) and len(sz) == 2:
+            if fmt == "img" or fmt == "bhwc":
+                # If format is image-like, then assume this is [H, W].
+                sz = tuple(int(s) for s in sz)
+            else:
+                # If format is sequence-like, then assume this is [C, H*W].
+                ch, sz = sz
+        elif isinstance(sz, (tuple, list)) and len(sz) == 3:
+            # If we have 3 values, they must be in [C, H, W] format. Split up the channel and spatial values.
+            ch = sz[0]
+            sz = tuple(int(s) for s in sz[1:])
+        else:
+            raise RuntimeError(f"Target size should be either an int or a sequence of 1-3 ints but got: {sz}")
+
+    # If we are targeting a 1D format just use an int. 1D size = H*W.
+    sz = convert_size_format(fmt, sz)
+
+    return fmt, ch, sz
+
+
 def parse_format_from_tensor(x, cur_fmt):
     if not isinstance(cur_fmt, str):
         cur_fmt, _ = cur_fmt  # Current size is ignored, b/c we just use the size of the tensor.
@@ -124,14 +171,54 @@ def parse_format_from_tensor(x, cur_fmt):
         cur_sz = tuple(x.shape[1:3])
     elif cur_fmt == "bert":
         cur_ch = x.shape[2]
-        cur_sz = to_square_img_size(x.shape[1] - 1)
+        cur_sz = x.shape[1] - 1
     elif cur_fmt == "token":
         cur_ch = x.shape[2]
-        cur_sz = to_square_img_size(x.shape[1])
+        cur_sz = x.shape[1]
     else:
         raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
 
     return cur_fmt, cur_ch, cur_sz
+
+
+def get_height_and_width(x, cur_fmt):
+    if not isinstance(cur_fmt, str):
+        cur_fmt, _ = cur_fmt  # Current size is ignored, b/c we just use the size of the tensor.
+
+    if cur_fmt == "img":
+        return tuple(x.shape[2:])
+    elif cur_fmt == "bhwc":
+        return tuple(x.shape[1:3])
+    elif cur_fmt == "bert" or cur_fmt == "token":
+        return 1, x.shape[1]
+    else:
+        raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
+
+
+def channel_dim_for_format(fmt):
+    if not isinstance(fmt, str):
+        fmt, _ = fmt
+    if fmt == "img":
+        return 1
+    elif fmt == "bhwc":
+        return 3
+    elif fmt == "bert" or fmt == "token":
+        return 2
+    else:
+        raise RuntimeError(f"Unrecognized format type: '{fmt}'")
+
+
+def width_dim_for_format(fmt):
+    if not isinstance(fmt, str):
+        fmt, _ = fmt
+    if fmt == "img":
+        return 3
+    elif fmt == "bhwc":
+        return 2
+    elif fmt == "bert" or fmt == "token":
+        return 1
+    else:
+        raise RuntimeError(f"Unrecognized format type: '{fmt}'")
 
 
 def reformat(x: torch.Tensor, cur_fmt: Union[str, tuple, list], target_fmt: Optional[Union[str, tuple, list]],
@@ -159,31 +246,10 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, tuple, list], target_fmt: Opti
         return x
 
     # Parse inputs.
-    cur_fmt, cur_ch, cur_sz = parse_format_from_tensor(x, cur_fmt)
-
-    target_ch = None
-    target_sz = None
-    if not isinstance(target_fmt, str):
-        target_fmt, target_sz = target_fmt
-        if isinstance(target_sz, int) or (isinstance(target_sz, (tuple, list)) and len(target_sz) == 1):
-            # If a 1D size is requested, determine the equivalent square image size.
-            target_sz = to_square_img_size(target_sz)
-        elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 2:
-            if target_fmt == "img" or target_fmt == "bhwc":
-                # If format is image-like, then assume this is [H, W].
-                target_sz = tuple(int(s) for s in target_sz)
-            else:
-                # If format is sequence-like, then assume this is [C, H*W]. Extract the C and get a 2D size.
-                target_ch = target_sz[0]
-                target_sz = to_square_img_size(target_sz[1])
-        elif isinstance(target_sz, (tuple, list)) and len(target_sz) == 3:
-            # If we have 3 values, they must be in [C, H, W] format. Split up the channel and spatial values.
-            target_ch = target_sz[0]
-            target_sz = tuple(int(s) for s in target_sz[1:])
-        else:
-            raise RuntimeError(f"Target size should be either an int or a pair but got: {target_sz}")
-
     reformat_options = {} if reformat_options is None else reformat_options
+    target_fmt, target_ch, target_sz = parse_format(target_fmt)
+    cur_fmt, cur_ch, cur_sz = parse_format_from_tensor(x, cur_fmt)
+    cur_sz = convert_size_format(target_fmt, cur_sz)
 
     # Ensure number of channels is expected.
     if cur_ch and target_ch and (cur_ch != target_ch):
@@ -198,6 +264,10 @@ def reformat(x: torch.Tensor, cur_fmt: Union[str, tuple, list], target_fmt: Opti
     # FIXME: If we do a resize from BERT to BERT, we lose the extra class info, even though it would be easy to retain.
     #        We should have a way to keep it.
     if target_sz is not None and cur_sz != target_sz:
+        # Resizing is always done by image interpolation so we need to translate to a 2D size. For these purposes, we
+        # always assume square images.
+        if isinstance(target_sz, int):
+            target_sz = to_square_img_size(target_sz)
         if cur_fmt != "img":
             x = TRANSFORM[(cur_fmt, "img")](x, **reformat_options)
             cur_fmt = "img"
@@ -557,7 +627,45 @@ class ParallelPart(nn.Module):
             # Now combine them by mean.
             x = torch.stack([r[0] for r in results]).mean(dim=0)
 
-        elif self.agg == "concat":
+        elif self.agg == "concat_sequence":
+
+            # Convert all results to the final expected output format, but maintaining current size. Ensure that all
+            # heights and channels are the same and that widths add up to the expected value.
+            total_width = 0
+            for i, res in enumerate(results):
+                _, num_channels, cur_sz = parse_format_from_tensor(*res)
+                if num_channels != self.out_fmt[1][0]:
+                    msg = (f"Error in parallel part at index {i}. Expected the number of channels to be "
+                           f"{self.out_fmt[1][0]}, but instead got {num_channels}. "
+                           f"Shape={res[0].shape}, Format={res[1]}")
+                    raise RuntimeError(msg)
+                # Reformat while keeping the current size.
+                cur_sz = convert_size_format(self.out_fmt[0], cur_sz)
+                if isinstance(cur_sz, int):
+                    cur_sz = [cur_sz]
+                target_fmt = [self.out_fmt[0], [num_channels, *cur_sz]]
+                res[0] = reformat(res[0], res[1], target_fmt, self.reformat_options)
+                # After reformatting, check the final width and height.
+                height, width = get_height_and_width(res[0], target_fmt)
+                total_width += width
+                expected_height = 1 if self.out_fmt[0] in ("bert", "token") else self.out_fmt[1][1]
+                if height != expected_height:
+                    msg = (f"Error in parallel part at index {i}. Expected height to be {expected_height}, but instead "
+                           f"got {height}. Shape={res[0].shape}, Format={res[1]}, Target Format={target_fmt}")
+                    raise RuntimeError(msg)
+
+            # After reformatting all outputs, check the final resulting width.
+            if total_width != self.out_fmt[1][-1]:
+                msg = (f"Expected the total width to be {self.out_fmt[1][-1]}, but instead got "
+                       f"{total_width}. Results:")
+                for res in results:
+                    msg += f"\nShape={res[0].shape}, Format={res[1]}"
+                raise RuntimeError(msg)
+
+            # Now we can stack the outputs horizontally.
+            x = torch.concat([r[0] for r in results], dim=width_dim_for_format(self.out_fmt))
+
+        elif self.agg == "concat" or self.agg == "concat_channels":
 
             # Convert formats and ensure number of channels adds up to the expected amount.
             # Ensure that everything other than the channels are converted to the expected format.
@@ -576,13 +684,7 @@ class ParallelPart(nn.Module):
                 raise RuntimeError(msg)
 
             # Now we can stack the outputs on the channel dimension.
-            if target_fmt[0] == "img":
-                channel_dim = 1
-            elif target_fmt[0] == "bhwc":
-                channel_dim = 3
-            else:
-                channel_dim = 2
-            x = torch.concat([r[0] for r in results], dim=channel_dim)
+            x = torch.concat([r[0] for r in results], dim=channel_dim_for_format(self.out_fmt))
 
         else:
             raise RuntimeError(f"Unrecognized aggregation function: {self.agg}")
