@@ -330,6 +330,18 @@ def part_forward(part, x, cur_fmt, reformat_options=None, part_index=None):
                                f"in reformatting just prior to this part. Error:\n{str(e)}")
 
 
+class Function(nn.Module):
+
+    def __init__(self, name, in_format=None, out_format=None, **kwargs):
+        super().__init__()
+        self.in_fmt = in_format
+        self.out_fmt = out_format
+        self.fn = utils.function_from_name(name, **kwargs)
+
+    def forward(self, x):
+        return self.fn(x)
+
+
 class Net(nn.Module):
 
     def __init__(self, model_name, **kwargs):
