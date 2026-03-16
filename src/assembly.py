@@ -388,16 +388,19 @@ class BaseBlock(nn.Module):
 
 class ClassifierHead(nn.Module):
 
-    def __init__(self, input_shape=None, num_classes=None):
+    def __init__(self, test_input, num_classes, trunk_out_fmt=None):
         super().__init__()
-        if input_shape is None:
+        if test_input is None:
             raise RuntimeError(f"{type(self).__name__} requires `input_shape` argument.")
         if num_classes is None:
             raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
-        if len(input_shape) != 3:
-            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape}.")
+        if trunk_out_fmt:
+            test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
+        if len(test_input.shape[1:]) != 3:
+            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {test_input.shape} "
+                               f"(format = {trunk_out_fmt}).")
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.linear = nn.Linear(input_shape[0], num_classes)
+        self.linear = nn.Linear(test_input.shape[1], num_classes)
         self.in_fmt = "img"
         self.out_fmt = "vector"
 
@@ -436,20 +439,16 @@ def part_class_from_name(cls_name):
         raise RuntimeError(f"Part class not found: '{cls_name}'")
 
 
-def part_from_config(part_cfg, input_shape=None, num_classes=None):
+def part_from_config(part_cfg, **kwargs):
     if not validate_part(part_cfg):
         raise ValueError(f"Invalid part config:\n{part_cfg}")
     cls_name, args = next(iter(part_cfg.items()))
     PartClass = part_class_from_name(cls_name)
     args = args.copy() if args is not None else {}
+    args.update(kwargs)
     # The "frozen" arg is only used by the assembly which contains the parts.
     if "frozen" in args:
         del args["frozen"]
-    # Optionally some parts may wish to know the expected input/output format.
-    if input_shape and ("input_shape" in inspect.signature(PartClass).parameters):
-        args.setdefault("input_shape", input_shape)
-    if num_classes and ("num_classes" in inspect.signature(PartClass).parameters):
-        args.setdefault("num_classes", num_classes)
 
     # Finally, construct the part.
     return PartClass(**args)
@@ -476,7 +475,7 @@ def model_from_config(config, input_shape=None, num_classes=None):
     elif "model" in config:
         # "model" is the new config item, preferred over "assembly". This allows us to use any type of part at the top
         # level, not just Assembly.
-        return part_from_config(config["model"], input_shape, num_classes)
+        return part_from_config(config["model"], input_shape=input_shape, num_classes=num_classes)
     else:
         raise RuntimeError(f"Model config not found. Config needs either 'model' or 'assembly' keys.")
 
@@ -527,9 +526,9 @@ class Assembly(nn.Module):
             if not isinstance(head, dict) or len(head) > 1:
                 raise ValueError(f"Unrecognized head config format: {head}."
                                  " Should consist of a single class with args.")
-            output_shape = utils.calculate_output_shape(lambda x: self.trunk_forward(x)[0], input_shape)
+            trunk_out, trunk_fmt = self.trunk_forward(torch.zeros((3,) + tuple(input_shape)))
             head_args = next(iter(head.values()))
-            self.head = part_from_config(head, output_shape, num_classes)
+            self.head = part_from_config(head, test_input=trunk_out, num_classes=num_classes, trunk_out_fmt=trunk_fmt)
             if head_args.get("frozen"):
                 freeze(self.head)
         else:
