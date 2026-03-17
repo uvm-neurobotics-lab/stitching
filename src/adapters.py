@@ -3,10 +3,9 @@ Library of adapter modules for stitching.
 """
 from functools import partial
 from math import sqrt
-from typing import List, Optional
+from typing import Sequence
 
 import torch.nn as nn
-import torchvision
 import torchvision.ops
 
 NORM_MAPPING = {}
@@ -230,6 +229,61 @@ class VisionTransformerBlock(torchvision.models.vision_transformer.EncoderBlock)
             raise RuntimeError(f"VisionTransformer format must be a 1D sequence, but instead got '{in_format[0]}'.")
         self.in_fmt = in_format if in_format else "bert"
         self.out_fmt = in_format if in_format else "bert"
+
+
+class SwinTransformerBlock(torchvision.models.swin_transformer.SwinTransformerBlock):
+    """
+    Equivalent to an encoder block from Swin. In Swin, the embed dim and number of heads are scaled up stage-by-stage:
+      - For Swin-Tiny:  embed_dim=(96, 192, 384, 768),   num_heads=(3, 6, 12, 24)
+      - For Swin-Small: embed_dim=(96, 192, 384, 768),   num_heads=(3, 6, 12, 24)
+      - For Swin-Base:  embed_dim=(128, 256, 512, 1024), num_heads=(4, 8, 16, 32)
+      - For Swin-Large: embed_dim=(192, 384, 768, 1536), num_heads=(6, 12, 24, 48)
+    You might consider matching these sizes, depending on what depth this block is being inserted into the model.
+
+    Normally every even Swin block would shift windows, while every odd block would not. So if you chain multiple
+    blocks together you may want to supply do_shift=True for every other block.
+
+    `drop_path_rate` cannot be set automatically, because it requires knowing what depth the current block is in the
+    model. It gives a probability that the attention or MLP will be skipped and only the residual connection will be
+    passed on. In timm, all Swin variants have a drop probability up to 0.1. But in Torchvision, values for Swin-Tiny
+    range up to 0.2, Swin-Small up to 0.3, and Swin-Base up to 0.5.
+    """
+    def __init__(self,
+                 num_heads: int,
+                 embed_dim: int = None,
+                 do_shift: bool = False,
+                 window_size: Sequence[int] = (7, 7),
+                 mlp_ratio: float = 4.0,
+                 dropout: float = 0.0,
+                 attention_dropout: float = 0.0,
+                 drop_path_rate: float = 0.0,
+                 in_format=None):
+        if in_format:
+            embed_dim = in_format[1][0]
+        if embed_dim is None:
+            raise ValueError(f"SwinTransformerBlock requires the user to specify embedding dimension.")
+        # noinspection PyTypeChecker
+        super().__init__(
+            dim=embed_dim,
+            num_heads=num_heads,
+            window_size=window_size,
+            shift_size=[0 if do_shift else w // 2 for w in window_size],
+            mlp_ratio=mlp_ratio,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            stochastic_depth_prob=drop_path_rate,
+        )
+        if in_format and in_format[0] != "bhwc":
+            raise RuntimeError(f"SwinTransformer format must be BHWC, but instead got '{in_format[0]}'.")
+        self.in_fmt = in_format if in_format else "bhwc"
+        self.out_fmt = in_format if in_format else "bhwc"
+
+        # Consider: special initialization for linear layers, found in SwinTransformer class.
+        # for m in self.modules():
+        #     if isinstance(m, nn.Linear):
+        #         nn.init.trunc_normal_(m.weight, std=0.02)
+        #         if m.bias is not None:
+        #             nn.init.zeros_(m.bias)
 
 
 class SimpleAdapter(nn.Module):
