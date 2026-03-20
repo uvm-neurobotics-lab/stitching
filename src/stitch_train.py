@@ -118,7 +118,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         "--resume-from.")
     parser.add_argument("--non-strict", dest="strict_load", action="store_false",
                         help="Use non-strict matching of weights when loading the checkpoint.")
-    parser.add_argument("--test-only", dest="test_only", action="store_true", help="Only test the model.")
+    parser.add_argument("--unfrozen", action="store_true", help="Train all parameters. Overrides config.")
+    parser.add_argument("--test-only", action="store_true", help="Only test the model.")
 
     # Distributed/hardware args.
     parser.add_argument("-j", "--workers", default=NUM_CORES, type=int, metavar="N",
@@ -194,7 +195,7 @@ def prep_config(parser, args):
     argutils.configure_logging(args, level=logging.INFO)
 
     # This list governs which _top-level_ args can be overridden from the command line.
-    config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "save_checkpoints",
+    config = argutils.load_config_from_args(parser, args, ["data_path", "print_freq", "unfrozen", "save_checkpoints",
                                                            "eval_checkpoints", "checkpoint_initial_model", "load_from",
                                                            "resume_from", "strict_load", "start_epoch", "test_only",
                                                            "save_dir", "metrics_output", "id", "project", "entity",
@@ -262,6 +263,9 @@ def setup_and_train(parser, config):
     logging.info("Constructing model.")
     model = model_from_config(config, input_shape, num_classes)
     model.to(device)
+    if config.get("unfrozen"):
+        for param in model.parameters():
+            param.requires_grad = True
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
     raw_metrics = training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
