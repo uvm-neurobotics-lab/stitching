@@ -160,7 +160,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../cifar100/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/cifar100/checkpoint.pth
                 block_input: layer4
                 block_output: layer4
                 in_format: [img, [1024, 14, 14]]
@@ -178,7 +178,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../resisc45/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/resisc45/checkpoint.pth
                 block_input: layer4
                 block_output: layer4
                 in_format: [img, [1024, 14, 14]]
