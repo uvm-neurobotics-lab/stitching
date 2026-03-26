@@ -19,7 +19,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../cifar100/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/cifar100/checkpoint.pth
                 block_input: x
                 block_output: layer1
                 in_format: img
@@ -37,7 +37,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../resisc45/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/resisc45/checkpoint.pth
                 block_input: x
                 block_output: layer1
                 in_format: img
@@ -66,7 +66,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../cifar100/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/cifar100/checkpoint.pth
                 block_input: layer2
                 block_output: layer2
                 in_format: [img, [256, 56, 56]]
@@ -84,7 +84,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../resisc45/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/resisc45/checkpoint.pth
                 block_input: layer2
                 block_output: layer2
                 in_format: [img, [256, 56, 56]]
@@ -113,7 +113,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../cifar100/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/cifar100/checkpoint.pth
                 block_input: layer3
                 block_output: layer3
                 in_format: [img, [512, 28, 28]]
@@ -131,7 +131,7 @@ model:
                 frozen: true
                 backend: timm
                 model_name: resnet50
-                ckp_path: ../../resisc45/checkpoint.pth
+                ckp_path: ../experiments/from-scratch/resnet50/resisc45/checkpoint.pth
                 block_input: layer3
                 block_output: layer3
                 in_format: [img, [512, 28, 28]]
