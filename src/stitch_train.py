@@ -154,13 +154,14 @@ def get_result_file(config):
     return resfile
 
 
-def validate_config(config):
+def validate_config(config, dataset_required=True):
     """
     Prints and validates the given training config. Throws an exception in the case of invalid or missing required
     values. Non-required missing values are filled in with their defaults; note that this modifies the config in-place.
 
     Args:
         config: A config dict which describes the hyperparams, dataset, etc. for training an architecture.
+        dataset_required: Whether the "train_config: dataset: " value is required.
     Returns:
         The config after validation (the same instance as was passed in).
     """
@@ -177,10 +178,10 @@ def validate_config(config):
         ensure_config_param(config, "reformat_options", of_type(dict), required=False)
     else:
         # "model" is the new config item, preferred over "assembly".
-        ensure_config_param(config, "model", of_type(dict))
+        ensure_config_param(config, "model", _and(of_type(dict), validate_part))
 
     # Now check values related to training the model.
-    datasets.check_data_config(config)
+    datasets.check_data_config(config, dataset_required=dataset_required)
     training.check_train_config(config)
 
     return config

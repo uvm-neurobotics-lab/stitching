@@ -195,6 +195,30 @@ def load_yaml_from_string(ystr, base_dir=None):
     return yaml.load(ystr, Loader=yaml.FullLoader)
 
 
+def transform_config(config, fn, name=None):
+    """
+    Visit each leaf value in the config and optionally transform it.
+
+    For example, to convert every instance of "ckp_path" from a string to a path:
+        transform_config(config, lambda k, v: Path(v) if k == "ckp_path" else v)
+
+    Args:
+        config (Any): The YAML config, or a sub-tree of the config.
+        fn ((key, value) -> value): A function that optionally returns a new value.
+        name (str): The name of the current config, iff it is a subconfig.
+
+    Returns:
+        Any: The new config.
+    """
+    if isinstance(config, Dict):
+        return {k: transform_config(v, fn, k) for k, v in config.items()}
+    elif isinstance(config, Iterable) and not isinstance(config, str):
+        # Also has the function of turning tuples into lists, so we get cleaner YAML output.
+        return [transform_config(v, fn) for v in config]
+    else:
+        return fn(name, config)
+
+
 def make_pretty(config, sort=False):
     """
     Clean up the given YAML config object to make it nicer for printing and writing to file. Also offers sorting, which

@@ -1,0 +1,233 @@
+#
+# Stitching ALL FOUR STAGES from both a CIFAR-trained model and a RESISC-trained model.
+#
+
+model:
+  Assembly:
+    input_shape: [3, 224, 224]
+    parts:
+
+    # STAGE 1
+    - ParallelPart:
+        agg: concat
+        in_format: img
+        out_format: [img, [256, 56, 56]]
+        parts:
+        - Assembly:  # ResNet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../cifar100/checkpoint.pth
+                block_input: x
+                block_output: layer1
+                in_format: img
+                out_format: [img, [256, 56, 56]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 256
+                out_channels: 128
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../resisc45/checkpoint.pth
+                block_input: x
+                block_output: layer1
+                in_format: img
+                out_format: [img, [256, 56, 56]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 256
+                out_channels: 128
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+    - SwinTransformerBlock:
+        frozen: false
+        in_format: [bhwc, [256, 56, 56]]
+        num_heads: 8  # Results in 32 channels per head.
+
+    # STAGE 2
+    - ParallelPart:
+        agg: concat
+        in_format: [img, [256, 56, 56]]
+        out_format: [img, [512, 28, 28]]
+        parts:
+        - Assembly:  # ResNet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../cifar100/checkpoint.pth
+                block_input: layer2
+                block_output: layer2
+                in_format: [img, [256, 56, 56]]
+                out_format: [img, [512, 28, 28]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 512
+                out_channels: 256
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../resisc45/checkpoint.pth
+                block_input: layer2
+                block_output: layer2
+                in_format: [img, [256, 56, 56]]
+                out_format: [img, [512, 28, 28]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 512
+                out_channels: 256
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+    - SwinTransformerBlock:
+        frozen: false
+        in_format: [bhwc, [512, 28, 28]]
+        num_heads: 16  # Results in 32 channels per head.
+
+    # STAGE 3
+    - ParallelPart:
+        agg: concat
+        in_format: [img, [512, 28, 28]]
+        out_format: [img, [1024, 14, 14]]
+        parts:
+        - Assembly:  # ResNet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../cifar100/checkpoint.pth
+                block_input: layer3
+                block_output: layer3
+                in_format: [img, [512, 28, 28]]
+                out_format: [img, [1024, 14, 14]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 1024
+                out_channels: 512
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../resisc45/checkpoint.pth
+                block_input: layer3
+                block_output: layer3
+                in_format: [img, [512, 28, 28]]
+                out_format: [img, [1024, 14, 14]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 1024
+                out_channels: 512
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+    - SwinTransformerBlock:
+        frozen: false
+        in_format: [bhwc, [1024, 14, 14]]
+        num_heads: 32  # Results in 32 channels per head.
+
+    # STAGE 4
+    - ParallelPart:
+        agg: concat
+        in_format: [img, [1024, 14, 14]]
+        out_format: [img, [2048, 7, 7]]
+        parts:
+        - Assembly:  # ResNet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../cifar100/checkpoint.pth
+                block_input: layer4
+                block_output: layer4
+                in_format: [img, [1024, 14, 14]]
+                out_format: [img, [2048, 7, 7]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 2048
+                out_channels: 1024
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../../resisc45/checkpoint.pth
+                block_input: layer4
+                block_output: layer4
+                in_format: [img, [1024, 14, 14]]
+                out_format: [img, [2048, 7, 7]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 2048
+                out_channels: 1024
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+    - SwinTransformerBlock:
+        frozen: false
+        in_format: [bhwc, [2048, 7, 7]]
+        num_heads: 64  # Results in 32 channels per head.
+
+    # CLASSIFIER HEAD
+    head:
+      ClassifierHead: {}
+
+deterministic: false
+eval_checkpoints: true
+save_checkpoints: false
+
+datasets: !include default-datasets.yml
+
+train_config:
+  # Dataset
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  batch_size: 128  # assuming 2 GPU, so effective batch size = 256
+  # TODO: consider adding label smoothing
+  loss_fn: cross_entropy
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.0002
+    weight_decay: 0.005

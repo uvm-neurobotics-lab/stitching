@@ -826,10 +826,10 @@ def make_datasets(
 ###############################################################################
 
 
-def check_data_config(config: dict):
+def check_data_config(config: dict, dataset_required=True):
     ensure_config_param(config, "data_path", existing_path)
     config["data_path"] = Path(config["data_path"]).expanduser().resolve()  # ensure the type is Path, not string.
-    ensure_config_param(config, ["train_config", "dataset"], of_type(str))
+    ensure_config_param(config, ["train_config", "dataset"], of_type(str), required=dataset_required)
     ensure_config_param(config, ["train_config", "batch_size"], _and(of_type(int), gt_zero), required=False)
     ensure_config_param(config, ["train_config", "max_batches"], _and(of_type(int), gt_zero), required=False)
     ensure_config_param(config, ["train_config", "data_preprocessing"], validate_preprocess_config, required=False)
