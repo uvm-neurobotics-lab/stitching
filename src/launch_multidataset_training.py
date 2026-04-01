@@ -158,7 +158,7 @@ def setup_and_launch_jobs(config, args, launcher_args):
     # create folder based on config name.
     expname = config["config"].stem
     rootdir = Path(config["save_dir"]).resolve() / config["project"] / expname
-    result = 0
+    result = []
     for dataset in config["datasets"]:
         print(f"\n---- LAUNCHING {dataset} ----\n")
         # Make a folder for the job.
@@ -210,8 +210,9 @@ def setup_and_launch_jobs(config, args, launcher_args):
         # Launch the job.
         # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while
         #       using torchrun.
-        result += call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch,
-                              env={"MKL_THREADING_LAYER": "GNU"})
+        ret = call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch,
+                          env={"MKL_THREADING_LAYER": "GNU"}, return_job_id=getattr(args, "return_job_ids", False))
+        result.append(ret)
         # It seems we need to manually flush to see printouts on the cluster.
         sys.stdout.flush()
         sys.stderr.flush()
