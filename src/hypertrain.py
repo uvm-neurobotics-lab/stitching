@@ -10,13 +10,16 @@ To run the sweep via W&B:
     CONFIG=moe-stitch/baseline-resnet-cifar-resisc.yml HARDWARE=v100 wandb agent <sweep-id> --count 25
 """
 import time
-import pandas as pd
-import wandb
 import subprocess
 from collections import defaultdict
 
+import numpy as np
+import pandas as pd
+import wandb
+
 import launch_multidataset_training as launch_utils
 from stitch_train import validate_config
+
 
 SEEDS = [12345, 67890, 111213]
 
@@ -53,17 +56,16 @@ def get_job_status(job_ids):
 
 
 def main():
-    # Initialize W&B.
-    # This will pick up the sweep configuration.
+    # Initialize W&B. This will pick up the sweep configuration.
     run = wandb.init()
     sweep_config = run.config
 
-    # Prepare the base configuration.
+    # Prepare the base configuration. We accept the same args as launch_multidataset_training.py.
     parser = launch_utils.create_arg_parser(__doc__)
-    # We expect the user to pass the base config via -c/--config as they would for launch_multidataset_training.py
     args, launcher_args = parser.parse_known_args()
     
     # Add our custom flag to return job IDs.
+    # TODO: Do this differently.
     args.return_job_ids = True
 
     config = launch_utils.prep_config(parser, args)
@@ -89,7 +91,7 @@ def main():
     print(f"Launching multi-dataset training jobs for seeds {SEEDS}...")
     all_job_ids = []
     for seed in SEEDS:
-        print(f"--- Launching Seed {seed} ---")
+        print(f"\n\n---------- SEED {seed} ----------")
         config["train_config"]["seed"] = seed
         job_ids = launch_utils.setup_and_launch_jobs(config, args, launcher_args)
         all_job_ids.extend(job_ids)
@@ -116,7 +118,7 @@ def main():
             print(f"Still waiting for {len(active_job_ids)} jobs: {active_job_ids}")
             # Report dummy value to keep wandb alive
             wandb.log({"Avg Test Accuracy": 0.0})
-            time.sleep(60) # Check every minute
+            time.sleep(60)  # Check every minute
 
     print("All jobs finished. Collecting results...")
 
@@ -146,19 +148,21 @@ def main():
     for dataset, metrics in dataset_accuracies.items():
         for metric, accs in metrics.items():
             if accs:
-                avg_acc = sum(accs) / len(accs)
-                print(f"{avg_acc:.4f} = {dataset} {metric}")
-                wandb.log({f"{dataset}/{metric}": avg_acc})
-                final_accuracies[metric].append(avg_acc)
+                avg = np.mean(accs)
+                std = np.std(accs)
+                print(f"{avg:.2%} ({std:.2%}) = {dataset} {metric}")
+                wandb.log({f"{dataset}/{metric}": avg, f"{dataset}/{metric} Std": std})
+                final_accuracies[metric].append(avg)
             else:
                 raise RuntimeError(f"No results collected for dataset {dataset}.")
     if not final_accuracies:
         raise RuntimeError("No test accuracies were collected.")
 
     for metric, accs in final_accuracies.items():
-        avg = sum(accs) / len(accs)
-        print(f"\nAverage {metric} across all datasets: {avg:.4f}")
-        wandb.log({f"Avg {metric}": avg})
+        avg = np.mean(accs)
+        std = np.std(accs)
+        print(f"\nAverage {metric} across all datasets: {avg:.2%} ({std:.2%})")
+        wandb.log({f"Avg {metric}": avg, f"Std {metric}": std})
 
     run.finish()
 
