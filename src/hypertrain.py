@@ -68,7 +68,7 @@ def main():
     # TODO: Do this differently.
     args.return_job_ids = True
 
-    config = launch_utils.prep_config(parser, args)
+    config = launch_utils.prep_config(parser, args, print_config=False)
     config["run_name"] = run.name
     
     # Override config with sweep parameters.
@@ -85,10 +85,14 @@ def main():
         config["train_config"]["epochs"] = sweep_config["epochs"]
 
     # Re-validate after overrides.
-    config = validate_config(config, dataset_required=False)
+    config = validate_config(config, print_config=True, dataset_required=False)
+
+    print("\n\nRUNNING HYPERPARAMS:")
+    for name in ("lr", "weight_decay", "batch_size"):
+        print(f"    {name:>13}: {sweep_config[name]}")
 
     # Launch jobs for multiple seeds.
-    print(f"Launching multi-dataset training jobs for seeds {SEEDS}...")
+    print(f"\n\nLaunching multi-dataset training jobs for seeds {SEEDS}...")
     all_job_ids = []
     for seed in SEEDS:
         print(f"\n\n---------- SEED {seed} ----------")

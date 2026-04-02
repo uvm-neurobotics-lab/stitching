@@ -154,19 +154,21 @@ def get_result_file(config):
     return resfile
 
 
-def validate_config(config, dataset_required=True):
+def validate_config(config, print_config=True, dataset_required=True):
     """
     Prints and validates the given training config. Throws an exception in the case of invalid or missing required
     values. Non-required missing values are filled in with their defaults; note that this modifies the config in-place.
 
     Args:
         config: A config dict which describes the hyperparams, dataset, etc. for training an architecture.
+        print_config: Whether to print the config for reference.
         dataset_required: Whether the "train_config: dataset: " value is required.
     Returns:
         The config after validation (the same instance as was passed in).
     """
-    # Output config for reference. Do it before checking config to assist debugging.
-    logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
+    if print_config:
+        # Output config for reference. Do it before checking config to assist debugging.
+        logging.info("\n------- Config -------\n" + yaml.dump(make_pretty(config)) + "----------------------")
 
     # First check values for constructing the model.
     if "assembly" in config and "model" in config:

@@ -113,7 +113,7 @@ def validate_dataset_config(datasets):
     return True
 
 
-def prep_config(parser, args):
+def prep_config(parser, args, print_config=True):
     """ Process command line arguments to produce a full training config. May also edit the arguments. """
     argutils.configure_logging(args, level=logging.INFO)
 
@@ -145,7 +145,7 @@ def prep_config(parser, args):
     config = transform_config(config, lambda k, v: Path(v).expanduser().resolve() if k == "ckp_path" else v)
     os.chdir(orig_dir)
 
-    return validate_config(config, dataset_required=False)
+    return validate_config(config, print_config=print_config, dataset_required=False)
 
 
 def build_job_config(config, save_dir, dataset):
