@@ -65,6 +65,7 @@ def main():
     args.return_job_ids = True
 
     config = launch_utils.prep_config(parser, args)
+    config["run_name"] = run.name
     
     # 3. Override config with sweep parameters
     # The requirement says assume config["optimizer_args"] always has "lr" and "weight_decay"
@@ -92,8 +93,7 @@ def main():
     active_job_ids = [jid for jid in job_ids if jid is not None]
     
     # We need to know where the results will be saved to extract accuracy later.
-    expname = config["config"].stem
-    rootdir = Path(config["save_dir"]).resolve() / config["project"] / expname
+    rootdir = launch_utils.result_rootdir(config)
     res_fname = launch_utils.result_filename(config)
 
     print("Waiting for jobs to complete...")
@@ -118,27 +118,23 @@ def main():
     for dataset in config["datasets"]:
         result_path = rootdir / dataset / res_fname
         if result_path.exists():
-            try:
-                df = pd.read_pickle(result_path)
-                if not df.empty:
-                    # Extract "Overall/Test Accuracy" from the last row
-                    acc = df["Overall/Test Accuracy"].iloc[-1]
-                    test_accuracies.append(acc)
-                    print(f"Dataset {dataset}: Test Accuracy = {acc}")
-                else:
-                    print(f"WARNING: Result file for {dataset} is empty.")
-            except Exception as e:
-                print(f"ERROR: Could not read result file for {dataset}: {e}")
+            df = pd.read_pickle(result_path)
+            if not df.empty:
+                # Extract "Overall/Test Accuracy" from the last row
+                acc = df["Overall/Test Accuracy"].iloc[-1]
+                test_accuracies.append(acc)
+                print(f"Dataset {dataset}: Test Accuracy = {acc}")
+            else:
+                raise RuntimeError(f"Result file for {dataset} is empty.")
         else:
-            print(f"WARNING: Result file for {dataset} not found at {result_path}")
+            raise RuntimeError(f"Result file for {dataset} not found at {result_path}")
 
     if test_accuracies:
         avg_acc = sum(test_accuracies) / len(test_accuracies)
         print(f"Final Average Test Accuracy: {avg_acc}")
         wandb.log({"Avg Test Accuracy": avg_acc})
     else:
-        print("ERROR: No test accuracies were collected.")
-        wandb.log({"Avg Test Accuracy": 0.0})
+        raise RuntimeError("No test accuracies were collected.")
 
     run.finish()
 

@@ -23,6 +23,11 @@ from utils import make_pretty, transform_config
 from utils.slurm import call_sbatch
 
 
+def result_rootdir(config) -> Path:
+    expname = config.get("exp_name", config["config"].stem)
+    return Path(config["save_dir"]).resolve() / config["project"] / expname / config["run_name"]
+
+
 def result_filename(config):
     fname = "result"
     seed = config.get("train_config", {}).get("seed")
@@ -92,6 +97,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     # Other args.
     argutils.add_seed_arg(parser, default_seed=1)
     argutils.add_wandb_args(parser, dflt_project="moe", allow_id=allow_id)
+    parser.add_argument("--run-name", "--name", metavar="NAME",
+                        help="The name of the run, used to name the result subfolder.")
     argutils.add_verbose_arg(parser)
     return parser
 
@@ -112,7 +119,7 @@ def prep_config(parser, args):
 
     # This list governs which _top-level_ args can be overridden from the command line.
     config = argutils.load_config_from_args(parser, args, ["config", "data_path", "print_freq", "save_checkpoints",
-                                                           "eval_checkpoints", "save_dir", "id", "project",
+                                                           "eval_checkpoints", "save_dir", "run_name", "id", "project",
                                                            "entity", "group", "device", "workers", "deterministic",
                                                            "verbose"])
     if not config.get("train_config"):
@@ -156,8 +163,7 @@ def build_job_config(config, save_dir, dataset):
 def setup_and_launch_jobs(config, args, launcher_args):
     """ Write configs for each job and launch them. """
     # create folder based on config name.
-    expname = config["config"].stem
-    rootdir = Path(config["save_dir"]).resolve() / config["project"] / expname
+    rootdir = result_rootdir(config)
     result = []
     for dataset in config["datasets"]:
         print(f"\n---- LAUNCHING {dataset} ----\n")
@@ -175,7 +181,7 @@ def setup_and_launch_jobs(config, args, launcher_args):
         res_fname = result_filename(config)
         result_path = outdir / res_fname
         if result_path.exists() and not args.force:
-            print(f"Results already exist for {expname}/{dataset}/{res_fname}. Skipping.")
+            print(f"Results already exist at {result_path}. Skipping.")
             continue
 
         # Write a config (overwrite if exists).
@@ -192,7 +198,7 @@ def setup_and_launch_jobs(config, args, launcher_args):
 
         # Write the metadata (overwrite if exists).
         metafile = outdir / "metadata.yml"
-        metacfg = {"arch": expname, "dataset": dataset}
+        metacfg = {"arch": config["config"].stem, "dataset": dataset}
         metacfg = make_pretty(metacfg)
         if not args.dry_run:
             metafile = metafile.resolve()
