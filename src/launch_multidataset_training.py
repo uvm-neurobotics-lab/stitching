@@ -41,7 +41,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     Creates the argument parser for this program.
 
     Args:
-        desc (str): The human-readable description for the arg parser.
+        desc (str | None): The human-readable description for the arg parser.
         allow_abbrev (bool): The `allow_abbrev` argument to `argparse.ArgumentParser()`.
         allow_id (bool): The `allow_id` argument to the `argutils.add_wandb_args()` function.
 
@@ -216,6 +216,7 @@ def setup_and_launch_jobs(config, args, launcher_args):
         # Launch the job.
         # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while
         #       using torchrun.
+        # TODO: Need to fix this whole mess of return codes vs. returning job IDs.
         ret = call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch,
                           env={"MKL_THREADING_LAYER": "GNU"}, return_job_id=getattr(args, "return_job_ids", False))
         result.append(ret)

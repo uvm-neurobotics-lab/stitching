@@ -201,7 +201,7 @@ def create_parser(desc, allow_abbrev=True):
     """
     A base parser with sensible default formatting.
     Args:
-        desc (str): Description of the program.
+        desc (str | None): Description of the program.
         allow_abbrev (bool): An argument to the ArgumentParser constructor; whether to allow long options to be
             abbreviated.
     Returns:

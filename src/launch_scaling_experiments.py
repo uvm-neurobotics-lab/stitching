@@ -297,7 +297,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     Creates the argument parser for this program.
 
     Args:
-        desc (str): The human-readable description for the arg parser.
+        desc (str | None): The human-readable description for the arg parser.
         allow_abbrev (bool): The `allow_abbrev` argument to `argparse.ArgumentParser()`.
         allow_id (bool): The `allow_id` argument to the `argutils.add_wandb_args()` function.
 

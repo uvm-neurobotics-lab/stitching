@@ -13,10 +13,12 @@ import time
 import pandas as pd
 import wandb
 import subprocess
-from pathlib import Path
+from collections import defaultdict
 
 import launch_multidataset_training as launch_utils
 from stitch_train import validate_config
+
+SEEDS = [12345, 67890, 111213]
 
 
 def get_job_status(job_ids):
@@ -24,7 +26,7 @@ def get_job_status(job_ids):
     if not job_ids:
         return {}
     
-    # Filter out None job_ids (e.g. from dry runs or failed launches)
+    # Filter out None job_ids (e.g. from dry runs or failed launches).
     valid_job_ids = [str(jid) for jid in job_ids if jid is not None]
     if not valid_job_ids:
         return {}
@@ -51,58 +53,63 @@ def get_job_status(job_ids):
 
 
 def main():
-    # 1. Initialize W&B
-    # This will pick up the sweep configuration
+    # Initialize W&B.
+    # This will pick up the sweep configuration.
     run = wandb.init()
     sweep_config = run.config
 
-    # 2. Prepare the base configuration
-    parser = launch_utils.create_arg_parser("Hyperparameter sweep wrapper")
+    # Prepare the base configuration.
+    parser = launch_utils.create_arg_parser(__doc__)
     # We expect the user to pass the base config via -c/--config as they would for launch_multidataset_training.py
     args, launcher_args = parser.parse_known_args()
     
-    # Add our custom flag to return job IDs
+    # Add our custom flag to return job IDs.
     args.return_job_ids = True
 
     config = launch_utils.prep_config(parser, args)
     config["run_name"] = run.name
     
-    # 3. Override config with sweep parameters
-    # The requirement says assume config["optimizer_args"] always has "lr" and "weight_decay"
+    # Override config with sweep parameters.
+    # The requirement says assume config["optimizer_args"] always has "lr" and "weight_decay".
     if "lr" in sweep_config:
         config["train_config"]["optimizer_args"]["lr"] = sweep_config["lr"]
     if "weight_decay" in sweep_config:
         config["train_config"]["optimizer_args"]["weight_decay"] = sweep_config["weight_decay"]
     
-    # Handle other possible sweep params
+    # Handle other possible sweep params.
     if "batch_size" in sweep_config:
         config["train_config"]["batch_size"] = sweep_config["batch_size"]
     if "epochs" in sweep_config:
         config["train_config"]["epochs"] = sweep_config["epochs"]
 
-    # Re-validate after overrides
+    # Re-validate after overrides.
     config = validate_config(config, dataset_required=False)
 
-    # 4. Launch jobs
-    print("Launching multi-dataset training jobs...")
-    job_ids = launch_utils.setup_and_launch_jobs(config, args, launcher_args)
-    print(f"Launched jobs: {job_ids}")
+    # Launch jobs for multiple seeds.
+    print(f"Launching multi-dataset training jobs for seeds {SEEDS}...")
+    all_job_ids = []
+    for seed in SEEDS:
+        print(f"--- Launching Seed {seed} ---")
+        config["train_config"]["seed"] = seed
+        job_ids = launch_utils.setup_and_launch_jobs(config, args, launcher_args)
+        all_job_ids.extend(job_ids)
+    
+    print(f"All launched jobs: {all_job_ids}")
 
-    # 5. Wait for completion
-    # Track which jobs we are still waiting for
-    active_job_ids = [jid for jid in job_ids if jid is not None]
+    # Wait for completion.
+    # Track which jobs we are still waiting for.
+    active_job_ids = [jid for jid in all_job_ids if jid is not None]
     
     # We need to know where the results will be saved to extract accuracy later.
     rootdir = launch_utils.result_rootdir(config)
-    res_fname = launch_utils.result_filename(config)
 
     print("Waiting for jobs to complete...")
     while active_job_ids:
-        # Check status
+        # Check status.
         statuses = get_job_status(active_job_ids)
         
-        # A job is finished if it's no longer in squeue
-        # (Note: this is a simplification; ideally we'd use sacct to check for successful completion)
+        # A job is finished if it's no longer in squeue.
+        # (Note: this is a simplification; ideally we'd use sacct to check for successful completion.)
         active_job_ids = [jid for jid in active_job_ids if jid in statuses]
         
         if active_job_ids:
@@ -113,28 +120,45 @@ def main():
 
     print("All jobs finished. Collecting results...")
 
-    # 6. Collect results and report to W&B
-    test_accuracies = []
-    for dataset in config["datasets"]:
-        result_path = rootdir / dataset / res_fname
-        if result_path.exists():
-            df = pd.read_pickle(result_path)
-            if not df.empty:
-                # Extract "Overall/Test Accuracy" from the last row
-                acc = df["Overall/Test Accuracy"].iloc[-1]
-                test_accuracies.append(acc)
-                print(f"Dataset {dataset}: Test Accuracy = {acc}")
+    # Collect results.
+    dataset_accuracies = {dataset: defaultdict(list) for dataset in config["datasets"]}
+    
+    for seed in SEEDS:
+        config["train_config"]["seed"] = seed
+        res_fname = launch_utils.result_filename(config)
+        
+        for dataset in config["datasets"]:
+            result_path = rootdir / dataset / res_fname
+            if result_path.exists():
+                df = pd.read_pickle(result_path)
+                if not df.empty:
+                    # Extract final accuracy from the last row.
+                    for metric in ("Train Accuracy", "Test Accuracy"):
+                        acc = df[f"Overall/{metric}"].iloc[-1]
+                        dataset_accuracies[dataset][f"{metric}"].append(acc)
+                else:
+                    raise RuntimeError(f"Result file for {dataset} (seed {seed}) is empty.")
             else:
-                raise RuntimeError(f"Result file for {dataset} is empty.")
-        else:
-            raise RuntimeError(f"Result file for {dataset} not found at {result_path}")
+                raise RuntimeError(f"Result file for {dataset} (seed {seed}) not found at {result_path}")
 
-    if test_accuracies:
-        avg_acc = sum(test_accuracies) / len(test_accuracies)
-        print(f"Final Average Test Accuracy: {avg_acc}")
-        wandb.log({"Avg Test Accuracy": avg_acc})
-    else:
+    # Calculate averages and report to W&B.
+    final_accuracies = defaultdict(list)
+    for dataset, metrics in dataset_accuracies.items():
+        for metric, accs in metrics.items():
+            if accs:
+                avg_acc = sum(accs) / len(accs)
+                print(f"{avg_acc:.4f} = {dataset} {metric}")
+                wandb.log({f"{dataset}/{metric}": avg_acc})
+                final_accuracies[metric].append(avg_acc)
+            else:
+                raise RuntimeError(f"No results collected for dataset {dataset}.")
+    if not final_accuracies:
         raise RuntimeError("No test accuracies were collected.")
+
+    for metric, accs in final_accuracies.items():
+        avg = sum(accs) / len(accs)
+        print(f"\nAverage {metric} across all datasets: {avg:.4f}")
+        wandb.log({f"Avg {metric}": avg})
 
     run.finish()
 
