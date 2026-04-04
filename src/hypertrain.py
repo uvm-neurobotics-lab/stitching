@@ -120,8 +120,6 @@ def main():
         
         if active_job_ids:
             print(f"{run.name} waiting for {len(active_job_ids)} jobs: {active_job_ids}")
-            # Report dummy value to keep wandb alive
-            wandb.log({"heartbeat": None})
             time.sleep(60)  # Check every minute
 
     print("All jobs finished. Collecting results...")
