@@ -7,7 +7,7 @@ To test this script standalone, try:
     
 To run the sweep via W&B:
     wandb sweep tests/hypersearch.yml
-    CONFIG=moe-stitch/baseline-resnet-cifar-resisc.yml HARDWARE=v100 wandb agent <sweep-id> --count 25
+    CONFIG=moe-stitch/baseline-resnet-cifar-resisc.yml HARDWARE=v100 wandb agent <sweep-id> --count 10
 """
 import time
 import subprocess
@@ -100,7 +100,7 @@ def main():
         job_ids = launch_utils.setup_and_launch_jobs(config, args, launcher_args)
         all_job_ids.extend(job_ids)
     
-    print(f"All launched jobs: {all_job_ids}")
+    print(f"Launched {len(all_job_ids)} jobs: {all_job_ids}")
 
     # Wait for completion.
     # Track which jobs we are still waiting for.
@@ -109,7 +109,6 @@ def main():
     # We need to know where the results will be saved to extract accuracy later.
     rootdir = launch_utils.result_rootdir(config)
 
-    print("Waiting for jobs to complete...")
     while active_job_ids:
         # Check status.
         statuses = get_job_status(active_job_ids)
@@ -119,8 +118,9 @@ def main():
         active_job_ids = [jid for jid in active_job_ids if jid in statuses]
         
         if active_job_ids:
-            print(f"Still waiting for {len(active_job_ids)} jobs: {active_job_ids}")
+            print(f"{run.name} waiting for {len(active_job_ids)} jobs: {active_job_ids}")
             # Report dummy value to keep wandb alive
+            # TODO: Can we report to a dummy metric to avoid poisoning the real metric?
             wandb.log({"Avg Test Accuracy": 0.0})
             time.sleep(60)  # Check every minute
 
