@@ -59,6 +59,8 @@ def build_command(hardware, conda_env, config_path, seed, result_file, verbosity
         sbatch_filename = "hgtrain.sbatch"
     elif hardware == "h200":
         sbatch_filename = "h2train.sbatch"
+    elif hardware == "preempt":
+        sbatch_filename = "preempt-train.sbatch"
     else:
         raise RuntimeError(f"Unrecognized hardware: {hardware}")
     sbatch_script = SCRIPT_DIR.parent / sbatch_filename
