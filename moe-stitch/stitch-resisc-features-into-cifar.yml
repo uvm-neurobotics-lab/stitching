@@ -1,5 +1,5 @@
 #
-# Stitching all 4 stages from a CIFAR-trained model and 2 stages from a RESISC-trained model.
+# Selecting some blocks from a RESISC-trained model to stitch into a CIFAR-100 model.
 #
 
 model:
@@ -11,7 +11,7 @@ model:
     - ParallelPart:
         agg: concat
         in_format: img
-        out_format: [img, [256, 56, 56]]
+        out_format: [img, [384, 56, 56]]
         parts:
         - Assembly:  # ResNet 1: CIFAR100
             parts:
@@ -24,13 +24,6 @@ model:
                 block_output: layer1
                 in_format: img
                 out_format: [img, [256, 56, 56]]
-            - SimpleAdapter:
-                frozen: false
-                in_channels: 256
-                out_channels: 128
-                num_conv: 1
-                kernel_size: 1
-                padding: 0
         - Assembly:  # ResNet 2: RESISC45
             parts:
             - Subnet:
@@ -42,23 +35,23 @@ model:
                 block_output: layer1
                 in_format: img
                 out_format: [img, [256, 56, 56]]
-            - SimpleAdapter:
+            - SimpleAdapter:  # TODO: Remove downsamples?
                 frozen: false
                 in_channels: 256
                 out_channels: 128
                 num_conv: 1
                 kernel_size: 1
                 padding: 0
-    - SwinTransformerBlock:
+    - ResNetBottleneck:
         frozen: false
-        in_format: [bhwc, [256, 56, 56]]
-        num_heads: 8  # Results in 32 channels per head.
+        in_channels: 384
+        out_channels: 256
 
     # STAGE 2
     - ParallelPart:
         agg: concat
         in_format: [img, [256, 56, 56]]
-        out_format: [img, [512, 28, 28]]
+        out_format: [img, [768, 28, 28]]
         parts:
         - Assembly:  # ResNet 1: CIFAR100
             parts:
@@ -71,15 +64,15 @@ model:
                 block_output: layer2
                 in_format: [img, [256, 56, 56]]
                 out_format: [img, [512, 28, 28]]
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
             - SimpleAdapter:
                 frozen: false
-                in_channels: 512
+                in_channels: 256
                 out_channels: 256
                 num_conv: 1
                 kernel_size: 1
                 padding: 0
-        - Assembly:  # ResNet 2: RESISC45
-            parts:
             - Subnet:
                 frozen: true
                 backend: timm
@@ -96,12 +89,12 @@ model:
                 num_conv: 1
                 kernel_size: 1
                 padding: 0
-    - SwinTransformerBlock:
+    - ResNetBottleneck:
         frozen: false
-        in_format: [bhwc, [512, 28, 28]]
-        num_heads: 16  # Results in 32 channels per head.
+        in_channels: 768
+        out_channels: 512
 
-    # STAGE 3 & 4
+    # STAGE 3 & 4: CIFAR100 only
     - Subnet:
         frozen: true
         backend: timm

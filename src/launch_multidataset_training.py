@@ -25,7 +25,7 @@ from utils.slurm import call_sbatch
 
 def result_rootdir(config) -> Path:
     expname = config.get("exp_name", config["config"].stem)
-    return Path(config["save_dir"]).resolve() / config["project"] / expname / config["run_name"]
+    return Path(config["save_dir"]).resolve() / config["project"] / expname / config.get("run_name", "")
 
 
 def result_filename(config):
