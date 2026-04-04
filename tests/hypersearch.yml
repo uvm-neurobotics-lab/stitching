@@ -14,8 +14,6 @@ command:
   - "--config=${envvar:CONFIG}"
   - "--hardware=${envvar:HARDWARE}"
   - "--conda=${envvar:CONDA_DEFAULT_ENV}"
-  - "-n"
-  - "-vv"
 method: bayes
 metric:
   goal: maximize
@@ -24,8 +22,8 @@ parameters:
   batch_size:
     values: [64, 128, 256]
   lr:
-    values: [0.01, 0.001, 0.0001]
+    values: [0.05, 0.01, 0.005, 0.001, 0.0005, 0.0001]
   weight_decay:
-    values: [1e-5, 1e-6, 1e-7]
+    values: [0.1, 0.05, 0.005]
   epochs:
     value: 10
