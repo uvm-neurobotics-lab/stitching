@@ -58,6 +58,7 @@ def get_job_status(job_ids):
 def main():
     # Initialize W&B. This will pick up the sweep configuration.
     run = wandb.init()
+    run.mark_preempting()  # We will always requeue if any of the sub-jobs fail! This could be risky.
     sweep_config = run.config
 
     # Prepare the base configuration. We accept the same args as launch_multidataset_training.py.
@@ -120,8 +121,7 @@ def main():
         if active_job_ids:
             print(f"{run.name} waiting for {len(active_job_ids)} jobs: {active_job_ids}")
             # Report dummy value to keep wandb alive
-            # TODO: Can we report to a dummy metric to avoid poisoning the real metric?
-            wandb.log({"Avg Test Accuracy": 0.0})
+            wandb.log({"heartbeat": None})
             time.sleep(60)  # Check every minute
 
     print("All jobs finished. Collecting results...")
