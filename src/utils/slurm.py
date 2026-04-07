@@ -17,7 +17,7 @@ def from_cfg_to_cmd(to_copy, from_config, dest_args):
                 dest_args.append(val)
 
 
-def call_sbatch(cmd, verbose=False, dry_run=False, env=None, return_job_id=False):
+def call_sbatch(cmd, verbose=False, dry_run=False, return_job_id=False, env=None):
     """
     Run the given command, which is assumed to be a call to `sbatch` or similar. We will expect that the console output
     contains the ID of a job which was launched.
@@ -28,17 +28,20 @@ def call_sbatch(cmd, verbose=False, dry_run=False, env=None, return_job_id=False
         cmd: A command for `sbatch` or an `sbatch` wrapper like Neuromanager's `launcher`.
         verbose: Whether to print the console output of `cmd`, rather than swallowing it.
         dry_run: Do not actually call the command, instead just print it to the console.
+        return_job_id: If True, return both the process exit code (int) and the Slurm job ID (int).
         env: If not None, modify the environment with the provided dict entries.
-        return_job_id: If True, return the Slurm job ID (int) instead of the process exit code.
 
     Returns:
-        int: The exit code of the called process, or 0 in the case of a dry run (if return_job_id is False).
-             Or the Slurm job ID if return_job_id is True.
+        int: The exit code of the called process, or 0 in the case of a dry run.
+        int: (Optional) The Slurm job ID, if `return_job_id` is True.
     """
     if dry_run:
         print("Command that would be run:")
         print("    " + " ".join(cmd))
-        return 0
+        if return_job_id:
+            return os.EX_OK, None
+        else:
+            return os.EX_OK
 
     try:
         envvars = [f"{k}={v}" for k, v in env.items()] if env else []
@@ -47,18 +50,18 @@ def call_sbatch(cmd, verbose=False, dry_run=False, env=None, return_job_id=False
         if env:
             newenv = os.environ.copy()
             newenv.update(env)
-        
-        # If we need to return the job ID, we MUST capture stdout regardless of verbose setting.
-        # But if verbose is also True, we still want to see the output.
-        if return_job_id or not verbose:
-            stderr = subprocess.STDOUT
-            stdout = subprocess.PIPE
-        else:
+
+        # If verbose, just let the launcher output directly to console.
+        # But if we need to return the job ID, we MUST capture stdout regardless of verbose setting.
+        if not return_job_id and verbose:
             stderr = None
             stdout = None
+        else:  # Normally, redirect stderr -> stdout and capture them both into stdout.
+            stderr = subprocess.STDOUT
+            stdout = subprocess.PIPE
 
         res = subprocess.run(cmd, text=True, check=True, env=newenv, stdout=stdout, stderr=stderr)
-        
+
         job_id = None
         if stdout is not None:
             if verbose:
@@ -70,14 +73,17 @@ def call_sbatch(cmd, verbose=False, dry_run=False, env=None, return_job_id=False
                 print(res.stdout)
             else:
                 job_id = int(match.group(1))
-                print(f"Submitted batch job {job_id}")
+                print(match.group(0))
 
         if return_job_id:
-            return job_id
-        return res.returncode
+            if job_id is None:
+                raise RuntimeError("Unable to find Slurm job ID.")
+            return res.returncode, job_id
+        else:
+            return res.returncode
     except subprocess.CalledProcessError as e:
         # Print the output if we captured it, to allow for debugging.
-        if not verbose or return_job_id:
+        if not verbose:
             print("LAUNCH FAILED. Launcher output:")
             print("-" * 80)
             print(e.stdout)

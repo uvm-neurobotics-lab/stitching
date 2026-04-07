@@ -9,6 +9,8 @@ To run the sweep via W&B:
     wandb sweep tests/hypersearch.yml
     CONFIG=moe-stitch/baseline-resnet-cifar-resisc.yml HARDWARE=v100 wandb agent <sweep-id> --count 10
 """
+import os
+import sys
 import time
 import subprocess
 from collections import defaultdict
@@ -64,13 +66,9 @@ def main():
     # Prepare the base configuration. We accept the same args as launch_multidataset_training.py.
     parser = launch_utils.create_arg_parser(__doc__)
     args, launcher_args = parser.parse_known_args()
-    
-    # Add our custom flag to return job IDs.
-    # TODO: Do this differently.
-    args.return_job_ids = True
-
     config = launch_utils.prep_config(parser, args, print_config=False)
-    config["run_name"] = run.name
+    if args.dry_run:
+        config["run_name"] = run.name
     
     # Override config with sweep parameters.
     # The requirement says assume config["optimizer_args"] always has "lr" and "weight_decay".
@@ -88,20 +86,34 @@ def main():
     # Re-validate after overrides.
     config = validate_config(config, print_config=True, dataset_required=False)
 
+    missing_params = []
     print("\n\nRUNNING HYPERPARAMS:")
     for name in ("lr", "weight_decay", "batch_size"):
-        print(f"    {name:>13}: {sweep_config[name]}")
+        if name in sweep_config:
+            print(f"    {name:>13}: {sweep_config[name]}")
+        else:
+            missing_params.append(name)
+    if missing_params and not args.dry_run:
+        raise ValueError(f"Missing sweep parameters: {missing_params}")
 
     # Launch jobs for multiple seeds.
     print(f"\n\nLaunching multi-dataset training jobs for seeds {SEEDS}...")
+    total_retcode = 0
     all_job_ids = []
     for seed in SEEDS:
         print(f"\n\n---------- SEED {seed} ----------")
         config["train_config"]["seed"] = seed
-        job_ids = launch_utils.setup_and_launch_jobs(config, args, launcher_args)
+        # setup_and_launch_jobs now returns a list of (return_code, job_id) tuples.
+        retcode, job_ids = launch_utils.setup_and_launch_jobs(config, args, launcher_args)
+        total_retcode += retcode
         all_job_ids.extend(job_ids)
-    
-    print(f"Launched {len(all_job_ids)} jobs: {all_job_ids}")
+
+    print(f"\n\nLaunched {len(all_job_ids)} jobs: {all_job_ids}")
+
+    fail_list = [jid is None for jid in all_job_ids]
+    if total_retcode > 0 or any(fail_list):
+        print(f"WARNING: Failed to launch some jobs. (Appears to be {sum(fail_list)} failures?) We will wait for the "
+              "rest of the jobs to complete before reporting sweep failure to W&B.")
 
     # Wait for completion.
     # Track which jobs we are still waiting for.
@@ -122,9 +134,13 @@ def main():
             print(f"{run.name} waiting for {len(active_job_ids)} jobs: {active_job_ids}")
             time.sleep(60)  # Check every minute
 
-    print("All jobs finished. Collecting results...")
+    if total_retcode > 0 or any(fail_list):
+        print("Due to failed jobs, we will now exit with a non-zero return code and W&B will re-run the failed jobs.")
+        return total_retcode if total_retcode > 0 else 1
 
     # Collect results.
+    print("All jobs finished. Collecting results...")
+
     dataset_accuracies = {dataset: defaultdict(list) for dataset in config["datasets"]}
     
     for seed in SEEDS:
@@ -172,7 +188,8 @@ def main():
         wandb.log({f"Avg {metric}": avg, f"Std {metric}": std})
 
     run.finish()
+    return os.EX_OK
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -164,7 +164,8 @@ def setup_and_launch_jobs(config, args, launcher_args):
     """ Write configs for each job and launch them. """
     # create folder based on config name.
     rootdir = result_rootdir(config)
-    result = []
+    result = 0
+    job_ids = []
     for dataset in config["datasets"]:
         print(f"\n---- LAUNCHING {dataset} ----\n")
         # Make a folder for the job.
@@ -216,15 +217,15 @@ def setup_and_launch_jobs(config, args, launcher_args):
         # Launch the job.
         # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while
         #       using torchrun.
-        # TODO: Need to fix this whole mess of return codes vs. returning job IDs.
-        ret = call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch,
-                          env={"MKL_THREADING_LAYER": "GNU"}, return_job_id=getattr(args, "return_job_ids", False))
-        result.append(ret)
+        ret, job_id = call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch, return_job_id=True,
+                                  env={"MKL_THREADING_LAYER": "GNU"})
+        result += ret
+        job_ids.append(job_id)
         # It seems we need to manually flush to see printouts on the cluster.
         sys.stdout.flush()
         sys.stderr.flush()
 
-    return result
+    return result, job_ids
 
 
 def main(argv=None):
@@ -232,7 +233,7 @@ def main(argv=None):
     args, launcher_args = parser.parse_known_args(argv)
 
     config = prep_config(parser, args)
-    return setup_and_launch_jobs(config, args, launcher_args)
+    return setup_and_launch_jobs(config, args, launcher_args)[0]
 
 
 if __name__ == "__main__":
