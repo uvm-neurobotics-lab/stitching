@@ -147,6 +147,7 @@ def main():
 
     # Calculate averages and report to W&B.
     final_accuracies = defaultdict(list)
+    seed_averages = defaultdict(lambda: defaultdict(list))
     for dataset, metrics in dataset_accuracies.items():
         for metric, accs in metrics.items():
             if accs:
@@ -155,6 +156,8 @@ def main():
                 print(f"{avg:.2%} ({std:.2%}) = {dataset} {metric}")
                 wandb.log({f"{dataset}/{metric}": avg, f"{dataset}/{metric} Std": std})
                 final_accuracies[metric].append(avg)
+                for seed_idx, acc in enumerate(accs):
+                    seed_averages[SEEDS[seed_idx]][metric].append(acc)
             else:
                 raise RuntimeError(f"No results collected for dataset {dataset}.")
     if not final_accuracies:
@@ -162,7 +165,9 @@ def main():
 
     for metric, accs in final_accuracies.items():
         avg = np.mean(accs)
-        std = np.std(accs)
+        # Calculate std over seeds by averaging per-seed results across datasets
+        seed_avgs = [np.mean(seed_averages[seed][metric]) for seed in SEEDS]
+        std = np.std(seed_avgs)
         print(f"\nAverage {metric} across all datasets: {avg:.2%} ({std:.2%})")
         wandb.log({f"Avg {metric}": avg, f"Std {metric}": std})
 
