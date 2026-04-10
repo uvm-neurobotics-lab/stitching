@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# To launch, run "sbatch h2train.sbatch stitch src/stitch_train.py -c tests/stitch-resnet18.yml" or similar.
+# To launch, run "sbatch train-2gpu.sbatch stitch src/stitch_train.py -c tests/stitch-resnet18.yml" or similar.
 # Ensure the job's batch size is configured appropriately for 2 GPU, or change the number of GPU accordingly.
 
 #SBATCH --job-name=stitch
 #SBATCH --time=03:00:00
 #SBATCH --partition=nvgpu
-#SBATCH --constraint=h200
+#SBATCH --constraint="GPU_SKU:H100|GPU_SKU:H200"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40

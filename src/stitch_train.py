@@ -53,12 +53,12 @@ def build_command(hardware, conda_env, config_path, seed, result_file, verbosity
     # Find the script to run, relative to this file.
     target_script = SCRIPT_DIR / "stitch_train.py"
     assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
-    if hardware == "v100":
-        sbatch_filename = "nvtrain.sbatch"
-    elif hardware == "h100":
+    if hardware == "nvgpu":
+        sbatch_filename = "train.sbatch"
+    elif hardware == "nvgpu2":
+        sbatch_filename = "train-2gpu.sbatch"
+    elif hardware == "hgnodes":
         sbatch_filename = "hgtrain.sbatch"
-    elif hardware == "h200":
-        sbatch_filename = "h2train.sbatch"
     elif hardware == "preempt":
         sbatch_filename = "preempt-train.sbatch"
     else:
