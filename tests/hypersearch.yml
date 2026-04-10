@@ -5,7 +5,7 @@
 #   1. Create the sweep:
 #      wandb sweep tests/hypersearch.yml
 #   2. Run an agent (passing extra args to the script via the command line):
-#      CONFIG=moe-stitch/baseline-resnet-cifar-resisc.yml HARDWARE=v100 wandb agent <sweep-id> --count 10
+#      CONFIG=moe-stitch/baseline-resnet-cifar-resisc.yml HARDWARE=nvgpu wandb agent <sweep-id> --count 10
 
 program: src/hypertrain.py
 command:
@@ -20,7 +20,7 @@ metric:
   name: Avg Test Accuracy
 parameters:
   batch_size:
-    values: [64, 128, 256]
+    values: [128, 256, 512]
   lr:
     values: [0.05, 0.01, 0.005, 0.001, 0.0005, 0.0001]
   weight_decay:

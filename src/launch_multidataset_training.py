@@ -78,7 +78,8 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("--deterministic", action="store_true", help="Use only deterministic algorithms.")
 
     # Other/Launcher Arguments
-    parser.add_argument("--hardware", metavar="NAME", default="v100", choices=["v100", "h100", "h200", "preempt"],
+    parser.add_argument("--hardware", metavar="CLUSTER", default="nvgpu",
+                        choices=["nvgpu", "nvgpu2", "hgnodes", "preempt"],
                         help="The type of hardware to launch on (actually this just maps to the pre-baked sbatch "
                              "scripts in the same directory as this script, and is specifically based on UVM's Slurm "
                              "cluster).")
