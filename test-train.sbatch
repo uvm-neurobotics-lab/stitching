@@ -6,6 +6,7 @@
 #SBATCH --job-name=stitch-test
 #SBATCH --time=3:00:00
 #SBATCH --partition=gpu-debug
+#SBATCH --constraint=GPU_ANY
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4

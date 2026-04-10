@@ -6,6 +6,7 @@
 #SBATCH --job-name=stitch
 #SBATCH --time=03:00:00
 #SBATCH --partition=gpu-preempt
+#SBATCH --constraint=GPU_ANY
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
