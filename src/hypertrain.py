@@ -67,7 +67,7 @@ def main():
     parser = launch_utils.create_arg_parser(__doc__)
     args, launcher_args = parser.parse_known_args()
     config = launch_utils.prep_config(parser, args, print_config=False)
-    if args.dry_run:
+    if not args.dry_run:
         config["run_name"] = run.name
     
     # Override config with sweep parameters.
