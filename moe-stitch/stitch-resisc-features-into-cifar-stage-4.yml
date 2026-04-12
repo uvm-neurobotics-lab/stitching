@@ -1,0 +1,96 @@
+#
+# Given a CIFAR-100 base model, how can we incorporate RESISC45 features in the final stage?
+#
+
+model:
+  Assembly:
+    input_shape: [3, 224, 224]
+    parts:
+
+    # STAGES 1, 2, 3
+    - ParallelPart:
+        agg: concat
+        in_format: img
+        out_format: [img, [1536, 14, 14]]
+        parts:
+        - Assembly:  # ResNet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../experiments/from-scratch/resnet50/cifar100/checkpoint.pth
+                block_input: x
+                block_output: layer3
+                in_format: img
+                out_format: [img, [1024, 14, 14]]
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                backend: timm
+                model_name: resnet50
+                ckp_path: ../experiments/from-scratch/resnet50/resisc45/checkpoint.pth
+                block_input: x
+                block_output: layer3
+                in_format: img
+                out_format: [img, [1024, 14, 14]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 1024
+                out_channels: 512
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+    - ResNetBottleneck:
+        frozen: false
+        in_channels: 1536
+        out_channels: 1024
+
+    # STAGE 4: CIFAR100 only
+    - Subnet:
+        frozen: true
+        backend: timm
+        model_name: resnet50
+        ckp_path: ../experiments/from-scratch/resnet50/cifar100/checkpoint.pth
+        block_input: layer4
+        block_output: layer4
+        in_format: [img, [1024, 14, 14]]
+        out_format: [img, [2048, 7, 7]]
+
+    # CLASSIFIER HEAD
+    head:
+      ClassifierHead: {}
+
+deterministic: false
+eval_checkpoints: true
+save_checkpoints: false
+
+datasets: !include default-datasets.yml
+
+train_config:
+  # Dataset
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  batch_size: 128  # assuming 2 GPU, so effective batch size = 256
+  # TODO: consider adding label smoothing
+  loss_fn: cross_entropy
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.0002
+    weight_decay: 0.005
