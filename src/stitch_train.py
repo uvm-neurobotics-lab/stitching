@@ -129,9 +129,9 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              "node.")
     parser.add_argument("-e", "--epochs", default=10, type=int, metavar="N", help="Number of epochs to train.")
     parser.add_argument("--lr", "--learning-rate", type=float, metavar="RATE", help="Learning rate for the optimizer.")
-    parser.add_argument("--wd", "--weight-decay", type=float, metavar="RATE", dest="weight_decay",
+    parser.add_argument("--wd", "--weight-decay", type=float, metavar="VAL", dest="weight_decay",
                         help="Weight decay for the optimizer, if applicable.")
-    parser.add_argument("--momentum", type=float, metavar="RATE", help="Momentum for the optimizer, if applicable.")
+    parser.add_argument("--momentum", type=float, metavar="VAL", help="Momentum for the optimizer, if applicable.")
     parser.add_argument("-b", "--batch-size", default=32, type=int, metavar="N",
                         help="Mini-batch size. When distributed, the total batch size is (num GPUs * batch size).")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
