@@ -219,7 +219,7 @@ def setup_and_launch_jobs(config, args, launcher_args):
         # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while
         #       using torchrun.
         ret, job_id = call_sbatch(command, args.launch_verbose, args.dry_run or args.do_not_launch, return_job_id=True,
-                                  env={"MKL_THREADING_LAYER": "GNU"})
+                                  env={"MKL_THREADING_LAYER": "GNU", "WANDB_MODE": "disabled"})
         result += ret
         job_ids.append(job_id)
         # It seems we need to manually flush to see printouts on the cluster.

@@ -388,7 +388,7 @@ def get_location():
     return loc
 
 
-def prepare_wandb(parsed_args, job_type=None, allow_reinit=None, dry_run=False):
+def prepare_wandb(parsed_args, job_type=None, allow_reinit=None, allow_conn_reuse=False, dry_run=False):
     """
     Calls `wandb.init()` and (optionally) sets up the result folder, based on the arguments from `add_wandb_args()`.
 
@@ -400,6 +400,8 @@ def prepare_wandb(parsed_args, job_type=None, allow_reinit=None, dry_run=False):
         job_type (str): The type of program creating this run, such as "train" or "eval".
         allow_reinit (bool): If true, you may call this function multiple times; see the `reinit` argument to
             `wandb.init()`.
+        allow_conn_reuse (bool): If true, allow W&B to reuse an existing socket connection (only appropriate if this
+            process is being launched on the same node as its parent, rather than a Slurm node).
         dry_run (bool): If true, don't actually take actions, just print what actions would be taken.
 
     Returns:
@@ -420,6 +422,13 @@ def prepare_wandb(parsed_args, job_type=None, allow_reinit=None, dry_run=False):
     existing_id = parsed_args.get("id")
 
     if not dry_run:
+        # We almost always do not want to inherit this variable from our parent environment. We are usually being
+        # launched onto a Slurm node, so we cannot reuse the existing socket connection. If we try, it will result in
+        # a FileNotFoundError for a missing socket connection.
+        if not allow_conn_reuse and "WANDB_SERVICE" in os.environ:
+            logging.debug("Deleting WANDB_SERVICE variable to create a new connection.")
+            del os.environ["WANDB_SERVICE"]
+
         kwargs = {
             "config": parsed_args,
             "group": parsed_args.get("group"),
