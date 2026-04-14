@@ -182,6 +182,14 @@ class ResNetBottleneck(nn.Module):
         # transformation is needed. It is also shown to improve ResNets generally in https://arxiv.org/abs/1706.02677.
         if init_identity:
             nn.init.zeros_(self.bn3.weight)
+            if downsample is not None:
+                # Initialize downsample as identity: take first min(in_channels, out_channels) channels exactly as they
+                # are (i.e., give them a weight of 1), and zero the rest.
+                downsample[0].weight.data.zero_()  # First zero all weights.
+                min_channels = min(in_channels, out_channels)
+                for i in range(min_channels):
+                    # Weight = 1.0 when in_channel == out_channel.
+                    downsample[0].weight.data[i, i, 0, 0] = 1.0
 
     def forward(self, x):
         identity = x
