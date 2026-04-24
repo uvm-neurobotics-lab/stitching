@@ -70,6 +70,11 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         default=Path("experiments").resolve(), help="Root location for all experiments.")
 
     # Distributed/hardware args.
+    parser.add_argument("-e", "--epochs", default=10, type=int, metavar="N", help="Number of epochs to train.")
+    parser.add_argument("--lr", "--learning-rate", type=float, metavar="RATE", help="Learning rate for the optimizer.")
+    parser.add_argument("--wd", "--weight-decay", type=float, metavar="VAL", dest="weight_decay",
+                        help="Weight decay for the optimizer, if applicable.")
+    parser.add_argument("--momentum", type=float, metavar="VAL", help="Momentum for the optimizer, if applicable.")
     parser.add_argument("-b", "--batch-size", default=256, type=int, metavar="N",
                         help="Mini-batch size. When distributed, the total batch size is (num GPUs * batch size).")
     parser.add_argument("-m", "--max-batches", type=int, metavar="N",
@@ -128,7 +133,13 @@ def prep_config(parser, args, print_config=True):
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
     # This list governs which _training_ args can be overridden from the command line.
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
-                                                                 ["seed", "batch_size", "max_batches"])
+                                                                 ["seed", "epochs", "batch_size", "max_batches"])
+    # Special option to override some optimization parameters.
+    if "optimizer_args" in config["train_config"]:
+        optconf = config["train_config"]["optimizer_args"]
+        config["train_config"]["optimizer_args"] = argutils.override_from_command_line(optconf, parser, args,
+                                                                                       ["lr", "weight_decay",
+                                                                                        "momentum"])
     # Legacy support for older configs: move "data_augmentation" to be a sub-field of "data_preprocessing":
     if "data_augmentation" in config["train_config"]:
         config["train_config"].setdefault("data_preprocessing", {})
