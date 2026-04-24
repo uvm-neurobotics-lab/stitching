@@ -70,7 +70,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         default=Path("experiments").resolve(), help="Root location for all experiments.")
 
     # Distributed/hardware args.
-    parser.add_argument("-e", "--epochs", default=10, type=int, metavar="N", help="Number of epochs to train.")
+    parser.add_argument("-e", "--epochs", type=int, metavar="N", help="Number of epochs to train.")
     parser.add_argument("--lr", "--learning-rate", type=float, metavar="RATE", help="Learning rate for the optimizer.")
     parser.add_argument("--wd", "--weight-decay", type=float, metavar="VAL", dest="weight_decay",
                         help="Weight decay for the optimizer, if applicable.")
