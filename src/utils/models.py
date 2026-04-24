@@ -8,21 +8,8 @@ from pathlib import Path
 import torch
 import torchvision
 
+from .convnet import ConvNet
 from .subgraphs import create_sub_network
-
-# WORKING_MODELS = ['resnet50', 'resnet101', 'resnet18', 'resnet50mocov2', 'resnet50byol', 'resnet50simclr',
-#                   'swsl_resnext50_32x4d', 'mobilenetv3_large_100',
-#                   'vit_small_patch16_224mocov3', 'vit_small_patch16_224', 'vit_base_patch16_224mae', 'vit_base_patch16_224',  'vit_tiny_patch16_224', 'vit_large_patch16_224',
-#                   'swin_tiny_patch4_window7_224', 'swin_small_patch4_window7_224', 'swin_base_patch4_window7_224', 'swin_large_patch4_window7_224',
-#                   'regnet_y_16gf', 'regnet_y_3_2gf', 'regnet_y_1_6gf', 'regnet_y_8gf', 'regnet_y_32gf', 'regnet_y_800mf']
-
-# Below are the only models that work in the current version of the code.
-WORKING_MODELS = ['resnet50', 'resnet101', 'resnet18',
-                  'swsl_resnext50_32x4d', 'mobilenetv3_large_100',
-                  # 'mobilenetv3_large_075', 'mobilenetv3_small_100',  # Why are these missing from the above list?
-                  'vit_small_patch16_224', 'vit_base_patch16_224', 'vit_tiny_patch16_224',  # 'vit_large_patch16_224',
-                  'swin_tiny_patch4_window7_224', 'swin_small_patch4_window7_224', 'swin_base_patch4_window7_224',
-                  'swin_large_patch4_window7_224']
 
 # TODO: These block splits often skip over some downsamples and maxpools, which could be useful to have separate.
 MODEL_ZOO = {
@@ -491,19 +478,26 @@ def load_retccl(pretrained=True, ckp_path=None):
     return model
 
 
-def load_model(model_name, backend="pytorch", pretrained=True, ckp_path=None, verbose=False):
+def load_model(model_name, backend=None, pretrained=None, ckp_path=None, verbose=False, **kwargs):
     # Fetch the model architecture and (optionally) weights.
-    fetch_pretrained = pretrained and not ckp_path
+    if pretrained is None and backend is not None:
+        # For all backends other than the local backend, we want pretrained by default.
+        pretrained = True
+    fetch_pretrained = bool(pretrained) and not ckp_path
     if backend == "timm":
         import timm  # Local import to make it optional.
-        model = timm.create_model(model_name, pretrained=fetch_pretrained, scriptable=True)
+        model = timm.create_model(model_name, pretrained=fetch_pretrained, scriptable=True, **kwargs)
     elif backend == "satlas":
         model = load_satlas_model(model_name, pretrained=fetch_pretrained)
-    elif backend == "pytorch" or (not backend):
+    elif backend == "pytorch":
         if model_name == "retccl":
             model = load_retccl(pretrained=fetch_pretrained)
         else:
-            model = torchvision.models.get_model(model_name, pretrained=fetch_pretrained)
+            model = torchvision.models.get_model(model_name, pretrained=fetch_pretrained, **kwargs)
+    elif backend is None and model_name == "convnet":
+        if pretrained:
+            raise NotImplementedError("Pretrained weights are not available for the generic ConvNet.")
+        model = ConvNet(**kwargs)
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
 

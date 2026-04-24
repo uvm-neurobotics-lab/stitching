@@ -1,0 +1,47 @@
+#
+# Train a ConvNet-4 from scratch on CIFAR100.
+#
+
+model:
+  Assembly:
+    parts:
+    - Net:
+        model_name: convnet
+        num_blocks: 4
+        pretrained: false
+        in_format: img
+        out_format: img
+    head:
+      ClassifierHead: {}
+
+save_checkpoints: true
+
+train_config:
+  # Dataset
+  dataset: cifar100
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 90
+
+  # Optimization
+  batch_size: 256
+  loss_fn: cross_entropy
+  # TODO: consider adding label smoothing:
+#  loss_fn_args:
+#    label_smoothing: 0.1
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.002
+    weight_decay: 0.05

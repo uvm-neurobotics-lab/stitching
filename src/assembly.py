@@ -344,10 +344,10 @@ class Function(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, model_name, **kwargs):
+    def __init__(self, model_name, in_format=None, out_format=None, **kwargs):
         super().__init__()
-        self.in_fmt = "img"
-        self.out_fmt = "vector"
+        self.in_fmt = in_format or "img"
+        self.out_fmt = out_format or "vector"
         self.net = load_model(model_name=model_name, **kwargs)
 
     def forward(self, x):
