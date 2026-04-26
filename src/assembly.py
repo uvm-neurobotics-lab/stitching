@@ -402,7 +402,7 @@ class ClassifierHead(nn.Module):
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {test_input.shape} "
                                f"(format = {trunk_out_fmt}).")
         self.pool = nn.AdaptiveAvgPool2d(pooled_size)
-        final_length = pooled_size if isinstance(pooled_size, int) else (pooled_size[0] * pooled_size[1])
+        final_length = pooled_size**2 if isinstance(pooled_size, int) else (pooled_size[0] * pooled_size[1])
         final_length *= test_input.shape[1]
         self.linear = nn.Linear(final_length, num_classes)
         self.in_fmt = "img"
