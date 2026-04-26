@@ -394,13 +394,17 @@ class ClassifierHead(nn.Module):
             raise RuntimeError(f"{type(self).__name__} requires `input_shape` argument.")
         if num_classes is None:
             raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
+        if not (isinstance(pooled_size, int) or (isinstance(pooled_size, tuple) and len(pooled_size) == 2)):
+            raise RuntimeError(f"pooled_size must be an int or a tuple of length 2, but instead got: {pooled_size}.")
         if trunk_out_fmt:
             test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
         if len(test_input.shape[1:]) != 3:
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {test_input.shape} "
                                f"(format = {trunk_out_fmt}).")
         self.pool = nn.AdaptiveAvgPool2d(pooled_size)
-        self.linear = nn.Linear(test_input.shape[1], num_classes)
+        final_length = pooled_size if isinstance(pooled_size, int) else (pooled_size[0] * pooled_size[1])
+        final_length *= test_input.shape[1]
+        self.linear = nn.Linear(final_length, num_classes)
         self.in_fmt = "img"
         self.out_fmt = "vector"
 
