@@ -527,9 +527,9 @@ def load_model(model_name, backend=None, pretrained=None, ckp_path=None, verbose
     return model
 
 
-def load_subnet(model_name, block_input, block_output, backend="pytorch", pretrained=True, ckp_path=None,
-                verbose=False):
+def load_subnet(model_name, block_input, block_output, backend=None, pretrained=True, ckp_path=None, verbose=False,
+                **kwargs):
     block_input = listify(block_input)
     block_output = listify(block_output)
-    backbone = load_model(model_name, backend, pretrained, ckp_path, verbose)
+    backbone = load_model(model_name, backend, pretrained, ckp_path, verbose, **kwargs)
     return create_sub_network(backbone, block_input, block_output)

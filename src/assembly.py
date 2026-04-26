@@ -388,7 +388,7 @@ class BaseBlock(nn.Module):
 
 class ClassifierHead(nn.Module):
 
-    def __init__(self, test_input, num_classes, trunk_out_fmt=None):
+    def __init__(self, test_input, num_classes, trunk_out_fmt=None, pooled_size=(1, 1)):
         super().__init__()
         if test_input is None:
             raise RuntimeError(f"{type(self).__name__} requires `input_shape` argument.")
@@ -399,7 +399,7 @@ class ClassifierHead(nn.Module):
         if len(test_input.shape[1:]) != 3:
             raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {test_input.shape} "
                                f"(format = {trunk_out_fmt}).")
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.pool = nn.AdaptiveAvgPool2d(pooled_size)
         self.linear = nn.Linear(test_input.shape[1], num_classes)
         self.in_fmt = "img"
         self.out_fmt = "vector"
