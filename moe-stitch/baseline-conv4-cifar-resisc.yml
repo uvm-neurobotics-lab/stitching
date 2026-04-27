@@ -1,0 +1,89 @@
+#
+# A baseline for ComBo-like structures.
+#
+# We run two complete versions of Conv4 (minus the classification head). But we just do a simple adapter on top to
+# get the final classification.
+#
+
+model:
+  Assembly:
+    input_shape: [3, 224, 224]
+    parts:
+    - ParallelPart:
+        agg: concat
+        in_format: img
+        out_format: [img, [128, 14, 14]]
+        parts:
+        - Assembly:  # ResNet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: ../experiments/from-scratch/conv4/cifar100/checkpoint.pth
+                block_input: x
+                block_output: encoder.block4.pool
+                in_format: img
+                out_format: [img, [64, 14, 14]]
+#            - SimpleAdapter:
+#                frozen: false
+#                in_channels: 64
+#                out_channels: 64
+#                num_conv: 1
+#                kernel_size: 1
+#                padding: 0
+        - Assembly:  # ResNet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: ../experiments/from-scratch/conv4/resisc45/checkpoint.pth
+                block_input: x
+                block_output: encoder.block4.pool
+                in_format: img
+                out_format: [img, [64, 14, 14]]
+#            - SimpleAdapter:
+#                frozen: false
+#                in_channels: 64
+#                out_channels: 64
+#                num_conv: 1
+#                kernel_size: 1
+#                padding: 0
+    head:
+      ClassifierHead: {pooled_size: [4, 4]}  # Result: [128, 4, 4] --> 2048 length vector
+
+deterministic: false
+eval_checkpoints: true
+save_checkpoints: false
+
+datasets: !include default-datasets.yml
+
+train_config:
+  # Dataset
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  batch_size: 256
+  # TODO: consider adding label smoothing
+  loss_fn: cross_entropy
+
+  # TODO: Consider adding linear warmup.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.01
+    weight_decay: 0.001

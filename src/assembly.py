@@ -2,7 +2,7 @@
 A class for assembling blocks and adapters into a single module.
 """
 import inspect
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Mapping, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -394,7 +394,7 @@ class ClassifierHead(nn.Module):
             raise RuntimeError(f"{type(self).__name__} requires `input_shape` argument.")
         if num_classes is None:
             raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
-        if not (isinstance(pooled_size, int) or (isinstance(pooled_size, tuple) and len(pooled_size) == 2)):
+        if not (isinstance(pooled_size, int) or (isinstance(pooled_size, Sequence) and len(pooled_size) == 2)):
             raise RuntimeError(f"pooled_size must be an int or a tuple of length 2, but instead got: {pooled_size}.")
         if trunk_out_fmt:
             test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
