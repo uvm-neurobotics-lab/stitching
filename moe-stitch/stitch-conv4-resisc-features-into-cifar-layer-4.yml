@@ -1,0 +1,100 @@
+#
+# Given a CIFAR-100 Conv4 base model, how can we incorporate RESISC45 features into the final layer?
+#
+
+model:
+  Assembly:
+    input_shape: [3, 224, 224]
+    parts:
+
+    # LAYERS 1, 2, 3
+    - ParallelPart:
+        agg: concat
+        in_format: img
+        out_format: [img, [128, 28, 28]]
+        parts:
+        - Assembly:  # Convnet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: ../experiments/from-scratch/conv4/cifar100/checkpoint.pth
+                block_input: x
+                block_output: encoder.block3
+                in_format: img
+                out_format: [img, [64, 28, 28]]
+        - Assembly:  # Convnet 2: RESISC45
+            parts:
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: ../experiments/from-scratch/conv4/resisc45/checkpoint.pth
+                block_input: x
+                block_output: encoder.block3
+                in_format: img
+                out_format: [img, [64, 28, 28]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 64
+                out_channels: 64
+                num_conv: 1
+                kernel_size: 1
+                padding: 0
+    - SimpleAdapter:
+        frozen: false
+        in_channels: 128
+        out_channels: 64
+        num_conv: 1
+
+    # LAYER 4: CIFAR100 only
+    - Subnet:
+        frozen: true
+        model_name: convnet
+        num_blocks: 4
+        pretrained: false
+        ckp_path: ../experiments/from-scratch/conv4/cifar100/checkpoint.pth
+        block_input: encoder.block4
+        block_output: encoder.block4
+        in_format: [img, [64, 28, 28]]
+        out_format: [img, [64, 14, 14]]
+
+    # CLASSIFIER HEAD
+    head:
+      ClassifierHead: {pooled_size: [4, 4]}
+
+deterministic: false
+eval_checkpoints: true
+save_checkpoints: false
+
+datasets: !include default-datasets.yml
+
+train_config:
+  # Dataset
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  batch_size: 256
+  # TODO: consider adding label smoothing
+  loss_fn: cross_entropy
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.001
+    weight_decay: 0.005

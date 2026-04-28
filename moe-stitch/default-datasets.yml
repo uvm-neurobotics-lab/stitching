@@ -1,12 +1,12 @@
 # Default set of datasets to try in MoE-stitching experiments.
   - cifar100
   - resisc45
-  - cars
+#  - cars
   - dtd
   - fer2013
   - flowers
   - fmow
   - food101
-  - mnist
+#  - mnist
   - pcam
   - sun397
