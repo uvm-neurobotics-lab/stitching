@@ -12,7 +12,7 @@ NORM_MAPPING = {}
 NORM_MAPPING["bn"] = nn.BatchNorm2d
 NORM_MAPPING["batch"] = NORM_MAPPING["bn"]
 NORM_MAPPING["batchnorm"] = NORM_MAPPING["bn"]
-NORM_MAPPING["gn"] = partial(nn.GroupNorm, num_groups=1)
+NORM_MAPPING["gn"] = lambda num_channels: nn.GroupNorm(num_groups=1, num_channels=num_channels, affine=True)
 NORM_MAPPING["group"] = NORM_MAPPING["gn"]
 NORM_MAPPING["groupnorm"] = NORM_MAPPING["gn"]
 NORM_MAPPING["ln"] = nn.LayerNorm
@@ -59,30 +59,24 @@ def fix_conv_init(m, mode='fan_out', nonlinearity='relu'):
         nn.init.kaiming_normal_(m.weight, mode=mode, nonlinearity=nonlinearity)
 
 
-def init_identity(m):
+def identity_init(m):
     """
-    Initialize weights of the given module to identity.
+    Initialize weights of the given module to identity. If in channels != out channels, then only the first
+    min(in_channels, out_channels) channels are preserved in the output, and any additional channels will be zero.
 
     NOTE: Currently only applies to Linear and Conv modules. As far as I understand, all norm layers are already
-          initialized to identity.
+          initialized to identity. However, they will still not behave as identity when in train mode, because they
+          will renormalize the input based on the batch/layer/instance statistics.
     """
     if isinstance(m, nn.Linear):
-        # Identity: weight is identity matrix, bias is zero
-        if m.in_features == m.out_features:
-            nn.init.eye_(m.weight)
-        else:
-            # Not square, fallback to small random orthogonal
-            nn.init.orthogonal_(m.weight)
+        # Identity: weight is identity matrix, bias is zero.
+        nn.init.eye_(m.weight)
         if m.bias is not None:
             nn.init.zeros_(m.bias)
 
     elif isinstance(m, nn.Conv2d):
         # Conv2d: identity = Dirac delta kernel
-        # Only works if in_channels == out_channels
-        if m.in_channels == m.out_channels:
-            nn.init.dirac_(m.weight)
-        else:
-            nn.init.kaiming_uniform_(m.weight, a=1)
+        nn.init.dirac_(m.weight)
         if m.bias is not None:
             nn.init.zeros_(m.bias)
 
@@ -125,6 +119,8 @@ class ResNetBasicBlock(nn.Module):
         # transformation is needed. It is also shown to improve ResNets generally in https://arxiv.org/abs/1706.02677.
         if init_identity:
             nn.init.zeros_(self.bn2.weight)
+            if downsample is not None:
+                identity_init(downsample[0])
 
     def forward(self, x):
         identity = x
@@ -183,13 +179,7 @@ class ResNetBottleneck(nn.Module):
         if init_identity:
             nn.init.zeros_(self.bn3.weight)
             if downsample is not None:
-                # Initialize downsample as identity: take first min(in_channels, out_channels) channels exactly as they
-                # are (i.e., give them a weight of 1), and zero the rest.
-                downsample[0].weight.data.zero_()  # First zero all weights.
-                min_channels = min(in_channels, out_channels)
-                for i in range(min_channels):
-                    # Weight = 1.0 when in_channel == out_channel.
-                    downsample[0].weight.data[i, i, 0, 0] = 1.0
+                identity_init(downsample[0])
 
     def forward(self, x):
         identity = x
@@ -299,7 +289,7 @@ class SimpleAdapter(nn.Module):
     An adapter which can form either a simple layer or slightly more complex blocks.
     """
     def __init__(self, in_channels, out_channels, hid_channels=None, num_fc=0, num_conv=0, kernel_size=3, stride=1,
-                 padding=1, leading_norm=True, nonlinearity=True, fc_format=None, in_format=None):
+                 padding=1, leading_norm=True, nonlinearity=True, init_identity=False, fc_format=None, in_format=None):
         super().__init__()
         if num_fc < 0 or num_conv < 0:
             raise ValueError("num_fc and num_conv must be non-negative.")
@@ -355,6 +345,8 @@ class SimpleAdapter(nn.Module):
 
         self.adapter = nn.Sequential(*layers)
         self.apply(partial(fix_conv_init, nonlinearity="leaky_relu"))
+        if init_identity:
+            self.apply(identity_init)
 
     def forward(self, x):
         return self.adapter(x)
