@@ -1,0 +1,65 @@
+#
+# Multi-task training smoke test: two parallel Conv4 networks, each with its own head,
+# trained jointly on cifar100 and resisc45.
+#
+
+model:
+  Assembly:
+    parts:
+    - ParallelPart:
+        agg: "none"
+        out_format: null
+        parts:
+        - Assembly:
+            input_shape: [3, 224, 224]
+            parts:
+            - Net:
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                in_format: img
+                out_format: img
+            head:
+              ClassifierHead:
+                num_classes: 100
+                pooled_size: [4, 4]
+        - Assembly:
+            input_shape: [3, 224, 224]
+            parts:
+            - Net:
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                in_format: img
+                out_format: img
+            head:
+              ClassifierHead:
+                num_classes: 45
+                pooled_size: [4, 4]
+
+save_checkpoints: false
+eval_checkpoints: true
+
+train_config:
+  # Global defaults
+  loss_fn: cross_entropy
+  batch_size: 64
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  seed: 12345
+  epochs: &epochs 5
+
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.002
+    weight_decay: 0.05
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+
+  tasks:
+    - dataset: cifar100
+    - dataset: resisc45

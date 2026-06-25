@@ -189,7 +189,8 @@ def validate_config(config, print_config=True, dataset_required=True):
         ensure_config_param(config, "model", _and(of_type(dict), validate_part))
 
     # Now check values related to training the model.
-    datasets.check_data_config(config, dataset_required=dataset_required)
+    is_multi = "tasks" in config.get("train_config", {})
+    datasets.check_data_config(config, dataset_required=(dataset_required and not is_multi))
     training.check_train_config(config)
 
     return config
@@ -258,22 +259,52 @@ def setup_and_train(parser, config):
         argutils.prepare_wandb(config)
 
     logging.info("Loading dataset.")
-    train_data, test_data, input_shape, num_classes = datasets.load_dataset_from_config(config)
+    dataset_result = datasets.load_dataset_from_config(config)
+    train_cfg = config["train_config"]
+    workers = config["workers"]
+    logging.info(f"Using {workers} workers for data loading.")
 
-    if config["distributed"]:
-        train_sampler = DistributedSampler(train_data)
-        test_sampler = DistributedSampler(test_data, shuffle=False)
+    if isinstance(dataset_result, list):
+        # Multi-task mode.
+        task_names = [task["dataset"] for task in train_cfg["tasks"]]
+        input_shape = None
+        num_classes = None
+        train_loaders = {}
+        valid_loaders = {}
+        train_sampler = None
+        for i, (task_name, (train_data, test_data, _, _)) in enumerate(zip(task_names, dataset_result)):
+            task_batch_size = train_cfg["tasks"][i].get("batch_size", train_cfg.get("batch_size", 32))
+            if config["distributed"]:
+                tr_sampler = DistributedSampler(train_data)
+                te_sampler = DistributedSampler(test_data, shuffle=False)
+            else:
+                # noinspection PyTypeChecker
+                tr_sampler = RandomSampler(train_data)
+                # noinspection PyTypeChecker
+                te_sampler = SequentialSampler(test_data)
+            train_loaders[task_name] = DataLoader(
+                train_data, batch_size=task_batch_size, sampler=tr_sampler,
+                num_workers=workers, pin_memory=True, persistent_workers=workers > 1)
+            test_loader = DataLoader(
+                test_data, batch_size=task_batch_size, sampler=te_sampler,
+                num_workers=workers, pin_memory=True, persistent_workers=workers > 1)
+            valid_loaders[f"{task_name}/Test"] = (test_loader, i)
     else:
-        # noinspection PyTypeChecker
-        train_sampler = RandomSampler(train_data)
-        # noinspection PyTypeChecker
-        test_sampler = SequentialSampler(test_data)
-
-    logging.info(f"Using {config['workers']} workers for data loading.")
-    train_loader = DataLoader(train_data, batch_size=config["train_config"]["batch_size"], sampler=train_sampler,
-                              num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
-    test_loader = DataLoader(test_data, batch_size=config["train_config"]["batch_size"], sampler=test_sampler,
-                             num_workers=config["workers"], pin_memory=True, persistent_workers=config["workers"] > 1)
+        # Single-task mode.
+        train_data, test_data, input_shape, num_classes = dataset_result
+        if config["distributed"]:
+            train_sampler = DistributedSampler(train_data)
+            test_sampler = DistributedSampler(test_data, shuffle=False)
+        else:
+            # noinspection PyTypeChecker
+            train_sampler = RandomSampler(train_data)
+            # noinspection PyTypeChecker
+            test_sampler = SequentialSampler(test_data)
+        batch_size = train_cfg.get("batch_size", 32)
+        train_loaders = DataLoader(train_data, batch_size=batch_size, sampler=train_sampler,
+                                   num_workers=workers, pin_memory=True, persistent_workers=workers > 1)
+        valid_loaders = {"Test": DataLoader(test_data, batch_size=batch_size, sampler=test_sampler,
+                                            num_workers=workers, pin_memory=True, persistent_workers=workers > 1)}
 
     logging.info("Constructing model.")
     model = model_from_config(config, input_shape, num_classes)
@@ -283,7 +314,7 @@ def setup_and_train(parser, config):
             param.requires_grad = True
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
-    raw_metrics = training.train(config, model, train_loader, {"Test": test_loader}, train_sampler, device)
+    raw_metrics = training.train(config, model, train_loaders, valid_loaders, train_sampler, device)
 
     pe_metrics = training.per_epoch_metrics(raw_metrics)
     save_results(pe_metrics, resfile)

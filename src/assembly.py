@@ -532,7 +532,10 @@ class Assembly(nn.Module):
                                  " Should consist of a single class with args.")
             trunk_out, trunk_fmt = self.trunk_forward(torch.zeros((3,) + tuple(input_shape)))
             head_args = next(iter(head.values()))
-            self.head = part_from_config(head, test_input=trunk_out, num_classes=num_classes, trunk_out_fmt=trunk_fmt)
+            head_kwargs = {"test_input": trunk_out, "trunk_out_fmt": trunk_fmt}
+            if num_classes is not None:
+                head_kwargs["num_classes"] = num_classes
+            self.head = part_from_config(head, **head_kwargs)
             if head_args.get("frozen"):
                 freeze(self.head)
         else:
@@ -554,7 +557,8 @@ class Assembly(nn.Module):
               parts:
               - Subnet:
                   backend: timm
-                  model_name: resnet50.a1_in1k
+                  model_name: resnet50
+                  ckp_path: path/to/resnet50/checkpoint.pth
                   block_input: x
                   in_format: img
                   block_output: layer4
@@ -605,7 +609,10 @@ class ParallelPart(nn.Module):
         self.agg = agg
         self.in_fmt = in_format
         self.out_fmt = out_format
-        if len(out_format) != 2 or len(out_format[1]) not in (2, 3):
+        if agg == "none":
+            if out_format is not None:
+                raise RuntimeError('ParallelPart with agg="none" must have out_format=None.')
+        elif len(out_format) != 2 or len(out_format[1]) not in (2, 3):
             raise RuntimeError("Output format must be fully specified for ParallelAdapter. "
                                f"Instead we got: {out_format}")
         self.reformat_options = reformat_options
@@ -633,7 +640,10 @@ class ParallelPart(nn.Module):
             results.append(list(part_forward(part, x, cur_fmt, self.reformat_options, i)))
 
         # Now aggregate the parts together.
-        if self.agg == "avg":
+        if self.agg == "none":
+            return [r[0] for r in results], [r[1] for r in results]
+
+        elif self.agg == "avg":
 
             # Convert all results to the final expected output format.
             for i, res in enumerate(results):

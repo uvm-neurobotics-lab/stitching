@@ -829,31 +829,53 @@ def make_datasets(
 def check_data_config(config: dict, dataset_required=True):
     ensure_config_param(config, "data_path", existing_path)
     config["data_path"] = Path(config["data_path"]).expanduser().resolve()  # ensure the type is Path, not string.
-    ensure_config_param(config, ["train_config", "dataset"], of_type(str), required=dataset_required)
+    train_cfg = config.get("train_config", {})
+    if "tasks" in train_cfg:
+        if "dataset" in train_cfg:
+            raise RuntimeError('train_config may not contain both "dataset" and "tasks".')
+        tasks = train_cfg["tasks"]
+        if not isinstance(tasks, list) or len(tasks) == 0:
+            raise RuntimeError('"train_config.tasks" must be a non-empty list.')
+        for i, task in enumerate(tasks):
+            if not isinstance(task, dict) or "dataset" not in task:
+                raise RuntimeError(f'Each entry in "train_config.tasks" must have a "dataset" key (missing at index {i}).')
+    else:
+        ensure_config_param(config, ["train_config", "dataset"], of_type(str), required=dataset_required)
     ensure_config_param(config, ["train_config", "batch_size"], _and(of_type(int), gt_zero), required=False)
     ensure_config_param(config, ["train_config", "max_batches"], _and(of_type(int), gt_zero), required=False)
     ensure_config_param(config, ["train_config", "data_preprocessing"], validate_preprocess_config, required=False)
 
 
-def load_dataset_from_config(config: Dict) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
+def load_dataset_from_config(config: Dict):
     """
     Load datasets from config. Delegates to `make_datasets()`.
 
-    :param config: The dataset configuration.
-    :return:
-        train_data (torch.utils.data.Dataset): The training set.
-        test_data (torch.utils.data.Dataset): The test set.
-        input_shape (torch.Size | tuple): The size of the images [C, H, W].
-        num_classes (int): The number of classes for classification.
+    In single-task mode (train_config.dataset), returns a single tuple:
+        (train_data, test_data, input_shape, num_classes)
+
+    In multi-task mode (train_config.tasks), returns a list of such tuples, one per task.
+    Per-task values for batch_size, max_batches, and data_preprocessing override the global
+    train_config values when present.
     """
-    return make_datasets(config["train_config"]["dataset"], config["data_path"],
-                         config["train_config"].get("batch_size"), config["train_config"].get("max_batches"),
-                         config["train_config"].get("data_preprocessing"))
+    train_cfg = config["train_config"]
+    if "tasks" in train_cfg:
+        results = []
+        for task in train_cfg["tasks"]:
+            batch_size = task.get("batch_size", train_cfg.get("batch_size"))
+            max_batches = task.get("max_batches", train_cfg.get("max_batches"))
+            preprocess = task.get("data_preprocessing", train_cfg.get("data_preprocessing"))
+            results.append(make_datasets(task["dataset"], config["data_path"],
+                                         batch_size, max_batches, preprocess))
+        return results
+    else:
+        return make_datasets(train_cfg["dataset"], config["data_path"],
+                             train_cfg.get("batch_size"), train_cfg.get("max_batches"),
+                             train_cfg.get("data_preprocessing"))
 
 
 def add_dataset_arg(parser, dflt_data_dir=Path("./data").resolve()):
     """
-    Add an argument for the user to specify which search space and dataset they wish to use.
+    Add an argument for the user to specify which dataset they wish to use, and other data params.
     """
     parser.add_argument("--dataset", type=str.lower, help="The dataset to use.")
     parser.add_argument("--data-path", "--data-dir", metavar="PATH", type=resolved_path, default=dflt_data_dir,

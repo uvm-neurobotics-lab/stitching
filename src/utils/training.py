@@ -6,6 +6,8 @@ import warnings
 from collections.abc import Mapping, Sequence, Set
 from pathlib import Path
 
+import itertools
+
 import numpy as np
 import pandas as pd
 import torch
@@ -18,10 +20,22 @@ except ImportError:
     wandb = None
 
 from utils import ensure_config_param, make_pretty, restore_grad_state, gte_zero, _and, of_type, one_of
-from utils.logging import StandardLog
+from utils.logging import StandardLog, eval_mode
 from utils.optimization import (check_aux_loss_config, check_metrics_config, limit_model_optimization,
                                 loss_fns_from_config, metric_fns_from_config, optimizer_from_config,
                                 scheduler_from_config)
+
+
+class TaskSlice(torch.nn.Module):
+    """Wraps a multi-task model to expose a single task's output (by index)."""
+
+    def __init__(self, model, task_idx):
+        super().__init__()
+        self.model = model
+        self.task_idx = task_idx
+
+    def forward(self, x):
+        return self.model(x)[self.task_idx]
 
 
 def check_train_config(config: dict):
@@ -169,9 +183,39 @@ def print_memory_stats(rank=None):
     logging.info("")
 
 
+def compute_loss_scales(task_models, task_loaders, task_loss_fns, device, num_batches=3):
+    """Compute initial loss magnitudes for each task to use as normalization denominators."""
+    if len(task_loaders) == 1:
+        return [1.0]
+
+    scales = []
+    for task_model, loader, loss_fns in zip(task_models, task_loaders.values(), task_loss_fns):
+        with eval_mode(task_model):
+            total = 0.0
+            count = 0
+            for batch in itertools.islice(loader, num_batches):
+                images, labels = batch[0].to(device), batch[1].to(device)
+                if len(images) == 0:
+                    continue
+                _, losses, total_weight = forward_pass(task_model, images, labels, loss_fns)
+                total += (sum(losses.values()) / total_weight).item()
+                count += 1
+            scales.append(total / count if count > 0 else 1.0)
+    return scales
+
+
 def train(config, model, train_loader, valid_loaders, train_sampler, device):
     train_config = config["train_config"]
     model.to(device)
+
+    # Normalize to unified multi-task dict. Single-task uses task_name="" so key prefixes are empty.
+    is_multi = isinstance(train_loader, dict)
+    if is_multi:
+        task_loaders = train_loader  # {task_name: DataLoader}
+        task_names = list(task_loaders.keys())
+    else:
+        task_loaders = {"": train_loader}
+        task_names = [""]
 
     # Setup the optimization.
     if config.get("deterministic"):
@@ -182,14 +226,30 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
 
     optimizer = optimizer_from_config(train_config, model.parameters())
     scheduler, sched_cadence = scheduler_from_config(train_config, optimizer)
-    loss_fns = loss_fns_from_config(train_config, model)
     max_grad_norm = train_config["max_grad_norm"]
+
+    # Build per-task loss function dicts. Each task's loss_fn falls back to the global config value.
+    # Note: loss_fns_from_config receives the model before DDP so aux-loss hooks attach to the right module.
+    if is_multi:
+        task_loss_fns = []
+        for i, task_cfg in enumerate(train_config["tasks"]):
+            merged = dict(train_config)
+            merged.update({k: v for k, v in task_cfg.items() if k != "dataset"})
+            task_loss_fns.append(loss_fns_from_config(merged, TaskSlice(model, i)))
+    else:
+        task_loss_fns = [loss_fns_from_config(train_config, model)]
 
     # Set up distributed training and checkpointing behavior.
     model_without_ddp = model
     if config["distributed"]:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])
         model_without_ddp = model.module
+
+    # Build task_models after DDP wrapping so forward passes use the correct model.
+    if is_multi:
+        task_models = [TaskSlice(model, i) for i in range(len(task_names))]
+    else:
+        task_models = [model]
 
     if config.get("resume_from"):
         logging.info(f"Resuming checkpoint at {config['resume_from']}.")
@@ -204,20 +264,25 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
         checkpoint = torch.load(config["load_from"], map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"], config.get("strict_load", True))
 
+    # Compute per-task loss scales from the first few batches (for normalization).
+    loss_scales = compute_loss_scales(model, task_loaders, task_models, task_loss_fns, device)
+    logging.info(f"Loss scales: { {n: f'{s:.4f}' for n, s in zip(task_names, loss_scales)} }")
+
     # Set up progress/checkpoint logger.
     max_steps = train_config.get("max_steps", float("inf"))
     max_epochs = train_config["epochs"]
-    expected_steps = min(max_steps, max_epochs * len(train_loader))
+    steps_per_epoch = max(len(ldr) for ldr in task_loaders.values())
+    expected_steps = min(max_steps, max_epochs * steps_per_epoch)
     metric_fns = metric_fns_from_config(config, model)
-    # If double-verbose, print every step. Else, print every 10 steps when not configured.
-    once_per_epoch = len(train_loader)
+    once_per_epoch = steps_per_epoch
     print_freq = config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
     if max_epochs > 30:
         # TODO: Should make this configurable or come up with a better heuristic, but this works for now.
         save_freq *= 10
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
-    log = StandardLog(model, expected_steps, metric_fns, print_freq=print_freq, save_freq=save_freq,
+    log = StandardLog(model, expected_steps, metric_fns, task_names=task_names,
+                      print_freq=print_freq, save_freq=save_freq,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
                       use_wandb=wandb is not None, checkpoint_initial_model=config.get("checkpoint_initial_model",
                                                                                        config.get("save_checkpoints")))
@@ -226,45 +291,53 @@ def train(config, model, train_loader, valid_loaders, train_sampler, device):
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy.
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        return log.close(0, 0, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
+        return log.close(0, 0, model, task_loaders, valid_loaders, optimizer, scheduler, config, device,
                          should_eval=True, should_save=False)
 
     # BEGIN TRAINING
     step = 1
-    log.begin(model, train_loader, valid_loaders, optimizer, scheduler, config, device)
+    log.begin(model, task_loaders, valid_loaders, optimizer, scheduler, config, device)
 
     for epoch in range(config.get("start_epoch") + 1, max_epochs + 1):  # Epoch/step counts will be 1-based.
         if config["distributed"] and train_sampler is not None:
             train_sampler.set_epoch(epoch)
-        step = run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, sched_cadence, config, loss_fns,
-                             log, epoch, step, max_steps, max_grad_norm=max_grad_norm, device=device)
+        step = run_one_epoch(model, task_loaders, task_names, task_models, task_loss_fns, loss_scales,
+                             valid_loaders, optimizer, scheduler, sched_cadence, config, log, epoch, step,
+                             max_steps, max_grad_norm=max_grad_norm, device=device)
         if step > max_steps:
             break
         if sched_cadence == "epochs":
             scheduler.step()
 
-    return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, train_loader, valid_loaders, optimizer,
+    return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, task_loaders, valid_loaders, optimizer,
                      scheduler, config, device, bool(config.get("eval_checkpoints")),
                      bool(config.get("save_checkpoints")))
 
 
-def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, sched_cadence, config, loss_fns, log, epoch,
+def run_one_epoch(model, task_loaders, task_names, task_models, task_loss_fns, loss_scales,
+                  valid_loaders, optimizer, scheduler, sched_cadence, config, log, epoch,
                   step, max_steps=float("inf"), opt_params=None, max_grad_norm=0, device=None):
     """ Run one training epoch. """
-    log.begin_epoch(step, epoch, model, train_loader, valid_loaders, optimizer, device)
+    log.begin_epoch(step, epoch, model, task_loaders, valid_loaders, optimizer, device)
 
     # Only optimize the given layers during this epoch.
     saved_opt_state = None
     if opt_params:
         saved_opt_state = limit_model_optimization(model, opt_params)
 
+    # Align loaders: cycle shorter ones so every step has a batch from every task.
+    longest = max(len(l) for l in task_loaders.values())
+    aligned_iters = [itertools.islice(itertools.cycle(loader), longest)
+                     for loader in task_loaders.values()]
+
     model.train()
-    for batch in train_loader:
+    for batches in zip(*aligned_iters):
         log.begin_step(step, epoch, optimizer)
-        total_loss, losses, out, labels = run_one_step(batch, model, optimizer, loss_fns, max_grad_norm, device)
+        total_loss, losses, outs, labels = run_one_step(
+            batches, task_names, task_models, task_loss_fns, loss_scales, optimizer, max_grad_norm, device)
         if sched_cadence == "steps":
             scheduler.step()
-        log.end_step(step, epoch, total_loss, out, labels, model, all_losses=losses)
+        log.end_step(step, epoch, total_loss, outs, labels, model, all_losses=losses)
         step += 1
         if step > max_steps:
             break
@@ -273,27 +346,34 @@ def run_one_epoch(model, train_loader, valid_loaders, optimizer, scheduler, sche
     if opt_params:
         restore_grad_state(model, saved_opt_state)
 
-    log.end_epoch(step - 1, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device)
+    log.end_epoch(step - 1, epoch, model, task_loaders, valid_loaders, optimizer, scheduler, config, device)
     return step
 
 
-def run_one_step(batch, model, optimizer, loss_fns, max_grad_norm=0, device=None):
-    # Move data to GPU once loaded.
-    images, labels = batch
-    images, labels = images.to(device), labels.to(device)
-
-    # Forward pass.
-    out, losses, total_weight = forward_pass(model, images, labels, loss_fns)
-    loss = sum(losses.values()) / total_weight  # Normalize, or else this could grow to be unstable.
-
-    # Backpropagate.
+def run_one_step(batches, task_names, task_models, task_loss_fns, loss_scales, optimizer, max_grad_norm=0, device=None):
+    """Unified single/multi-task training step. Accumulates gradients across all tasks before stepping."""
     optimizer.zero_grad()
-    loss.backward()
+    all_losses = {}
+    all_outs = []
+    all_labels = []
+
+    for task_name, batch, task_model, loss_fns, scale in zip(
+            task_names, batches, task_models, task_loss_fns, loss_scales):
+        images, labels = batch[0].to(device), batch[1].to(device)
+        out, losses, total_weight = forward_pass(task_model, images, labels, loss_fns)
+        (sum(losses.values()) / (total_weight * scale)).backward()  # accumulates into .grad buffers
+        prefix = f"{task_name}/" if task_name else ""
+        all_losses.update({f"{prefix}{k}": v for k, v in losses.items()})
+        all_outs.append(out.detach())
+        all_labels.append(labels)
+
     if max_grad_norm > 0:
-        clip_grad_norm_(model.parameters(), max_grad_norm)
+        all_params = itertools.chain.from_iterable(g["params"] for g in optimizer.param_groups)
+        clip_grad_norm_(all_params, max_grad_norm)
     optimizer.step()
 
-    return loss, losses, out, labels
+    total_loss = sum(all_losses.values()) / len(all_outs)
+    return total_loss, all_losses, all_outs, all_labels
 
 
 def forward_pass(model, ims, labels, loss_fns):

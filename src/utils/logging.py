@@ -24,6 +24,18 @@ import utils.distributed as dist
 from utils import make_pretty
 
 
+class _TaskSlice(torch.nn.Module):
+    """Wraps a multi-task model to expose a single task's output for evaluation."""
+
+    def __init__(self, model, task_idx):
+        super().__init__()
+        self.model = model
+        self.task_idx = task_idx
+
+    def forward(self, x):
+        return self.model(x)[self.task_idx]
+
+
 class SmoothedValue:
     """
     Track a series of values and provide access to:
@@ -290,12 +302,21 @@ class BaseLog:
         if should_eval:
             self.last_eval_step = it
             if self.eval_full_train_set:
-                loaders = {"Train": train_loader, **{k.capitalize(): v for k, v in valid_loaders.items()}}
+                if isinstance(train_loader, dict):
+                    train_items = {f"{k}/Train": (v, i) for i, (k, v) in enumerate(train_loader.items())}
+                else:
+                    train_items = {"Train": train_loader}
+                loaders = {**train_items, **{k.capitalize(): v for k, v in valid_loaders.items()}}
             else:
                 loaders = {k.capitalize(): v for k, v in valid_loaders.items()}
             self.info(f"Checkpoint {it} Performance:")
-            for key, loader in loaders.items():
-                metric_dict = overall_metrics(model, loader, key, self.metric_fns, device, self.delimiter,
+            for key, loader_info in loaders.items():
+                if isinstance(loader_info, tuple):
+                    loader, task_idx = loader_info
+                    eval_model = _TaskSlice(model, task_idx)
+                else:
+                    loader, eval_model = loader_info, model
+                metric_dict = overall_metrics(eval_model, loader, key, self.metric_fns, device, self.delimiter,
                                               print_fn=self.info)
                 metric_msg = []
                 for mk, mv in metric_dict.items():
@@ -346,11 +367,13 @@ class BaseLog:
 
 class StandardLog(BaseLog):
 
-    def __init__(self, model, expected_steps, metric_fns, metrics_to_print=tuple(), print_freq=50, save_freq=256,
-                 eval_freq=256, save_dir=None, model_name="", use_wandb=False, checkpoint_initial_model=True,
-                 eval_full_train_set=False, log_gradients=False, print_delimiter="\t"):
+    def __init__(self, model, expected_steps, metric_fns, task_names=None, metrics_to_print=tuple(), print_freq=50,
+                 save_freq=256, eval_freq=256, save_dir=None, model_name="", use_wandb=False,
+                 checkpoint_initial_model=True, eval_full_train_set=False, log_gradients=False,
+                 print_delimiter="\t"):
         super().__init__(metric_fns, metrics_to_print, eval_freq, save_freq, save_dir, model_name, use_wandb,
                          checkpoint_initial_model, eval_full_train_set, print_delimiter)
+        self.task_names = task_names if task_names is not None else [""]
         self.expected_steps = expected_steps
         self.steps_in_epoch = 0
         self.epoch_start_step = -1
@@ -368,10 +391,12 @@ class StandardLog(BaseLog):
                 wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
     def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):
-        self.info(f"------------ Beginning Epoch {epoch} ({len(train_loader)} batches) ------------")
+        steps = (max(len(l) for l in train_loader.values())
+                 if isinstance(train_loader, dict) else len(train_loader))
+        self.info(f"------------ Beginning Epoch {epoch} ({steps} batches) ------------")
         self.epoch_start_step = it
         self.epoch_start_time = self.step_end_time = time()
-        self.steps_in_epoch = len(train_loader)
+        self.steps_in_epoch = steps
 
     def end_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device):
         self.info(f"---------------------- End Epoch {epoch} ----------------------")
@@ -406,26 +431,35 @@ class StandardLog(BaseLog):
         if not metric_fns:
             metric_fns = self.metric_fns
 
+        # Normalize out/labels to lists for unified single/multi-task handling.
+        if not isinstance(out, list):
+            out_list, labels_list, task_names = [out], [labels], [""]
+        else:
+            out_list, labels_list, task_names = out, labels, self.task_names
+
         # Compute metrics.
         extra_to_print = []
         non_bsize_metrics = {"Epoch": epoch, "Loss": loss.item()}
         metrics = {}
         if all_losses is not None and len(all_losses) > 1:
             metrics.update({k: v.item() for k, v in all_losses.items()})
-        for metric in metric_fns:
-            md = metric(out, labels)
-            for mk, mv in md.items():
-                metrics[mk] = mv
-                extra_to_print.append(mk)
+        for task_name, out_i, labels_i in zip(task_names, out_list, labels_list):
+            prefix = f"{task_name}/" if task_name else ""
+            for metric in metric_fns:
+                md = metric(out_i, labels_i)
+                for mk, mv in md.items():
+                    key = f"{prefix}{mk}"
+                    metrics[key] = mv
+                    extra_to_print.append(key)
         if self.use_wandb and self.log_gradients:
             log_gradient_stats(metrics, model)
 
         # Track runtime & memory performance.
-        batch_size = len(labels)
+        batch_size = sum(len(l) for l in labels_list)
         metrics["Time/Step"] = time() - self.step_end_time
         non_bsize_metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
         if torch.cuda.is_available():
-            device = loss.device
+            device = labels_list[0].device
             non_bsize_metrics["Max Mem"] = torch.cuda.max_memory_allocated(device) / 1024.0 / 1024.0
             torch.cuda.reset_peak_memory_stats(device)
 
