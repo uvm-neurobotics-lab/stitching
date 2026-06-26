@@ -5,9 +5,8 @@ import itertools
 import logging
 import warnings
 from collections.abc import Mapping, Sequence, Set
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Union
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -25,16 +24,7 @@ from utils.logging import StandardLog, eval_mode
 from utils.optimization import (check_aux_loss_config, check_metrics_config, limit_model_optimization,
                                 loss_fns_from_config, metric_fns_from_config, optimizer_from_config,
                                 scheduler_from_config)
-from utils.models import TaskSlice
-
-
-@dataclass
-class TaskInfo:
-    name: str
-    model: torch.nn.Module
-    loader: torch.utils.data.DataLoader
-    loss_fns: dict[str, Callable]
-    loss_scale: float = 1.0
+from utils.datasets import TaskInfo, TaskSlice
 
 
 def check_train_config(config: dict):
@@ -283,7 +273,7 @@ def train(config, model, train_loaders, valid_loaders, train_sampler, device):
         # TODO: Should make this configurable or come up with a better heuristic, but this works for now.
         save_freq *= 10
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
-    log = StandardLog(model, expected_steps, metric_fns, task_names=[t.name for t in task_infos],  # FIXME: not sure we need to store this
+    log = StandardLog(model, expected_steps, metric_fns, task_names=[t.name for t in task_infos],  # FIXME: don't need to store task names if task infos are being passed in every time anyway
                       print_freq=print_freq, save_freq=save_freq,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
                       use_wandb=wandb is not None, checkpoint_initial_model=config.get("checkpoint_initial_model",

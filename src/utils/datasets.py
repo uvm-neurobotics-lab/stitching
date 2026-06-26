@@ -5,6 +5,7 @@ import inspect
 import numbers
 import random
 import sys
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
@@ -15,7 +16,7 @@ import torchvision.transforms.v2 as transforms
 from torchvision import datasets as datasets
 from torchvision.transforms.v2 import (AutoAugmentPolicy, CenterCrop, Compose, Identity, InterpolationMode, Normalize,
                                        RandomResizedCrop, Resize, RGB, ToDtype, ToImage)
-from torch.utils.data import Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from utils import _and, ensure_config_param, find_matching_class, gt_zero, of_type
 from utils.argparsing import existing_path, image_size, resolved_path
@@ -431,6 +432,30 @@ def _ensure_default_preprocess_config(
 ###############################################################################
 # DATASETS
 ###############################################################################
+
+
+@dataclass
+class TaskInfo:
+    """Simple structure to bundle together all the information pertaining to a task."""
+    name: str
+    model: torch.nn.Module
+    loader: DataLoader
+    loss_fns: dict[str, Callable]
+    loss_scale: float = 1.0
+
+
+class TaskSlice(torch.nn.Module):
+    """
+    Wraps a multi-task model to expose a single task's output. It is assumed that this model returns an N-tuple, with
+    one output for each of its N heads. The task's output is identified by index.
+    """
+    def __init__(self, model: torch.nn.Module, task_idx: int):
+        super().__init__()
+        self.model = model
+        self.task_idx = task_idx
+
+    def forward(self, x):
+        return self.model(x)[self.task_idx]
 
 
 class DTD(datasets.DTD):

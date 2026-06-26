@@ -22,7 +22,7 @@ except ImportError:
 
 import utils.distributed as dist
 from utils import make_pretty
-from utils.models import TaskSlice
+from utils.datasets import TaskSlice  # TODO: Can remove dependency on datasets once TaskSlices are given by the caller
 
 
 class SmoothedValue:
