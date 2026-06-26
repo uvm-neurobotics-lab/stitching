@@ -405,6 +405,18 @@ MODEL_ZOO = {
 }
 
 
+class TaskSlice(torch.nn.Module):
+    """Wraps a multi-task model to expose a single task's output (by index)."""
+
+    def __init__(self, model, task_idx):
+        super().__init__()
+        self.model = model
+        self.task_idx = task_idx
+
+    def forward(self, x):
+        return self.model(x)[self.task_idx]
+
+
 def listify(block_spec):
     if isinstance(block_spec, str):
         block_spec = [block_spec]

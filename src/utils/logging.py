@@ -22,18 +22,7 @@ except ImportError:
 
 import utils.distributed as dist
 from utils import make_pretty
-
-
-class _TaskSlice(torch.nn.Module):
-    """Wraps a multi-task model to expose a single task's output for evaluation."""
-
-    def __init__(self, model, task_idx):
-        super().__init__()
-        self.model = model
-        self.task_idx = task_idx
-
-    def forward(self, x):
-        return self.model(x)[self.task_idx]
+from utils.models import TaskSlice
 
 
 class SmoothedValue:
@@ -282,7 +271,7 @@ class BaseLog:
             self.maybe_save_and_eval(0, 0, model, train_loader, valid_loaders, optimizer, scheduler, config, device)
 
     @torch.inference_mode()
-    def maybe_save_and_eval(self, it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
+    def maybe_save_and_eval(self, it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
                             should_eval=None, should_save=None):
         # If the caller has made a particular request, honor it. Otherwise...
         if should_save is None:
@@ -302,18 +291,16 @@ class BaseLog:
         if should_eval:
             self.last_eval_step = it
             if self.eval_full_train_set:
-                if isinstance(train_loader, dict):
-                    train_items = {f"{k}/Train": (v, i) for i, (k, v) in enumerate(train_loader.items())}
-                else:
-                    train_items = {"Train": train_loader}
-                loaders = {**train_items, **{k.capitalize(): v for k, v in valid_loaders.items()}}
+                loaders = ({f"{k}/Train": (v, i) for i, (k, v) in enumerate(train_loaders.items())}
+                           if len(train_loaders) > 1 else {"Train": next(train_loaders.values())})
+                loaders.update(valid_loaders)
             else:
-                loaders = {k.capitalize(): v for k, v in valid_loaders.items()}
+                loaders = valid_loaders
             self.info(f"Checkpoint {it} Performance:")
             for key, loader_info in loaders.items():
                 if isinstance(loader_info, tuple):
                     loader, task_idx = loader_info
-                    eval_model = _TaskSlice(model, task_idx)
+                    eval_model = TaskSlice(model, task_idx)
                 else:
                     loader, eval_model = loader_info, model
                 metric_dict = overall_metrics(eval_model, loader, key, self.metric_fns, device, self.delimiter,
@@ -355,9 +342,9 @@ class BaseLog:
 
         self.record(metrics, it)
 
-    def close(self, it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
+    def close(self, it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
               should_eval=True, should_save=True):
-        self.maybe_save_and_eval(it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device,
+        self.maybe_save_and_eval(it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
                                  should_eval, should_save)
         if self.start_time is not None:
             total_time_str = str(datetime.timedelta(seconds=int(time() - self.start_time)))
@@ -390,15 +377,14 @@ class StandardLog(BaseLog):
             if self.log_gradients:
                 wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
-    def begin_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, device):
-        steps = (max(len(l) for l in train_loader.values())
-                 if isinstance(train_loader, dict) else len(train_loader))
+    def begin_epoch(self, it, epoch, model, train_loaders, valid_loaders, optimizer, device):
+        steps = max(len(ldr) for ldr in train_loaders.values())
         self.info(f"------------ Beginning Epoch {epoch} ({steps} batches) ------------")
         self.epoch_start_step = it
         self.epoch_start_time = self.step_end_time = time()
         self.steps_in_epoch = steps
 
-    def end_epoch(self, it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device):
+    def end_epoch(self, it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device):
         self.info(f"---------------------- End Epoch {epoch} ----------------------")
 
         # If the eval function isn't going to recompute performance on train, then compile a summary here instead.
@@ -418,7 +404,7 @@ class StandardLog(BaseLog):
                 if (not self.metrics_to_print) or (mname in self.metrics_to_print):
                     self.info(f"    Train {mname}: {val.global_avg:.3f}")
 
-        self.maybe_save_and_eval(it, epoch, model, train_loader, valid_loaders, optimizer, scheduler, config, device)
+        self.maybe_save_and_eval(it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device)
 
         self.record({"Time/Per Epoch": time() - self.epoch_start_time}, it)
 
@@ -432,6 +418,7 @@ class StandardLog(BaseLog):
             metric_fns = self.metric_fns
 
         # Normalize out/labels to lists for unified single/multi-task handling.
+        # TODO: change to always accept list of outs with names
         if not isinstance(out, list):
             out_list, labels_list, task_names = [out], [labels], [""]
         else:

@@ -8,7 +8,6 @@ import sys
 from collections.abc import Mapping, Sequence, Set
 from importlib import import_module
 from pathlib import Path
-from types import ModuleType
 from typing import Any, Dict, Iterable
 
 
