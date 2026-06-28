@@ -187,7 +187,7 @@ def metric_fns_from_config(config, model):
         model (nn.Module): The model on which metrics will be computed.
 
     Returns:
-        dict: A list of metric functions.
+        list: A list of metric functions.
     """
     metric_fns = []
     for metric_cfg in config.get("metrics", []):

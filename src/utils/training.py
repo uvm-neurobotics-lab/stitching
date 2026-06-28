@@ -181,7 +181,7 @@ def compute_loss_scales(task_infos: list[TaskInfo], device: Union[str, int, torc
         with eval_mode(task_info.model):
             total = 0.0
             count = 0
-            for images, labels in itertools.islice(task_info.loader, num_batches):
+            for images, labels in itertools.islice(task_info.train_loader, num_batches):
                 if len(images) == 0:
                     continue
                 images, labels = images.to(device), labels.to(device)
@@ -191,13 +191,9 @@ def compute_loss_scales(task_infos: list[TaskInfo], device: Union[str, int, torc
             task_info.loss_scale = total / count if count > 0 else 1.0
 
 
-def train(config, model, train_loaders, valid_loaders, train_sampler, device):
+def train(config, model, task_infos, device):
     train_config = config["train_config"]
     model.to(device)
-
-    # If only a single train loader was passed in, then we're doing single-task training with an empty task name.
-    if not isinstance(train_loaders, dict):
-        train_loaders = {"": train_loaders}
 
     # Setup the optimization.
     if config.get("deterministic"):
@@ -230,30 +226,26 @@ def train(config, model, train_loaders, valid_loaders, train_sampler, device):
         checkpoint = torch.load(config["load_from"], map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"], config.get("strict_load", True))
 
-    # Build per-task info structures.
+    # Fill in per-task model, loss_fns, and metric_fns on the task_infos passed in from the caller.
     task_configs = train_config.get("tasks", [{}])
-    if len(task_configs) != len(train_loaders):
+    if len(task_configs) != len(task_infos):
         raise RuntimeError(f"Task configs (len={len(task_configs)}):\n{task_configs}\n"
-                           f"do not match train loaders (len={len(train_loaders)}):\n{train_loaders}")
-    # IMPORTANT: This assumes train loaders are in the same order as task configs.
-    task_infos = []
-    for i, ((name, loader), task_cfg) in enumerate(zip(train_loaders.items(), task_configs)):
+                           f"do not match task_infos (len={len(task_infos)}):\n{task_infos}")
+    for i, (task_info, task_cfg) in enumerate(zip(task_infos, task_configs)):
         if task_cfg:
-            # This merging of configs allows us to fall back to global loss configuration if the task doesn't have
-            # its own specific configuration.
+            # Merge global config with per-task overrides, so per-task config falls back to global defaults.
             cfg = dict(train_config)
             cfg.update(task_cfg)
-            # loss_fns_from_config gets the non-DDP model so aux-loss hooks attach to the right module.
-            task_loss_fns = loss_fns_from_config(cfg, TaskSlice(model_without_ddp, i))
-            # If doing multi-task training, we expect model output to be a tuple w/ index i corresponding to dataset i.
-            # So we wrap it in a TaskSlice for each task.
-            task_model = TaskSlice(model, i)
+            # Use non-DDP model for hook registration (loss/metric hooks attach to correct module).
+            task_info.loss_fns = loss_fns_from_config(cfg, TaskSlice(model_without_ddp, i))
+            # Metrics live at the top-level config (not train_config), so pass config here.
+            task_info.metric_fns = metric_fns_from_config(config, TaskSlice(model_without_ddp, i))
+            # Post-DDP model wrapped in TaskSlice routes input to the right task head during forward.
+            task_info.model = TaskSlice(model, i)
         else:
-            # We're not doing multi-task training, so don't use the task config.
-            task_loss_fns = loss_fns_from_config(train_config, model_without_ddp)
-            task_model = model
-
-        task_infos.append(TaskInfo(name, task_model, loader, task_loss_fns))
+            task_info.loss_fns = loss_fns_from_config(train_config, model_without_ddp)
+            task_info.metric_fns = metric_fns_from_config(config, model_without_ddp)
+            task_info.model = model
 
     # If doing multi-task training, compute per-task loss scales from the first few batches (for normalization).
     if len(task_infos) > 1:
@@ -263,9 +255,8 @@ def train(config, model, train_loaders, valid_loaders, train_sampler, device):
     # Set up progress/checkpoint logger.
     max_steps = train_config.get("max_steps", float("inf"))
     max_epochs = train_config["epochs"]
-    steps_per_epoch = max(len(ldr) for ldr in train_loaders.values())
+    steps_per_epoch = max(len(t.train_loader) for t in task_infos)
     expected_steps = min(max_steps, max_epochs * steps_per_epoch)
-    metric_fns = metric_fns_from_config(config, model)
     once_per_epoch = steps_per_epoch
     print_freq = config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1
     save_freq = once_per_epoch if config.get("save_checkpoints") else 0
@@ -273,8 +264,7 @@ def train(config, model, train_loaders, valid_loaders, train_sampler, device):
         # TODO: Should make this configurable or come up with a better heuristic, but this works for now.
         save_freq *= 10
     eval_freq = once_per_epoch if config.get("eval_checkpoints") else 0
-    log = StandardLog(model, expected_steps, metric_fns, task_names=[t.name for t in task_infos],  # FIXME: don't need to store task names if task infos are being passed in every time anyway
-                      print_freq=print_freq, save_freq=save_freq,
+    log = StandardLog(model, expected_steps, print_freq=print_freq, save_freq=save_freq,
                       eval_freq=eval_freq, save_dir=config.get("save_dir"), model_name=filesafe_model_name(model),
                       use_wandb=wandb is not None, checkpoint_initial_model=config.get("checkpoint_initial_model",
                                                                                        config.get("save_checkpoints")))
@@ -283,34 +273,35 @@ def train(config, model, train_loaders, valid_loaders, train_sampler, device):
         # We disable the cudnn benchmarking because it can noticeably affect the accuracy.
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        return log.close(0, 0, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
+        return log.close(0, 0, model, task_infos, optimizer, scheduler, config, device,
                          should_eval=True, should_save=False)
 
     # BEGIN TRAINING
     step = 1
-    log.begin(model, train_loaders, valid_loaders, optimizer, scheduler, config, device)
+    log.begin(model, task_infos, optimizer, scheduler, config, device)
 
     for epoch in range(config.get("start_epoch") + 1, max_epochs + 1):  # Epoch/step counts will be 1-based.
-        if config["distributed"] and train_sampler is not None:
-            train_sampler.set_epoch(epoch)
-        step = run_one_epoch(model, task_infos, valid_loaders, optimizer, scheduler, sched_cadence, config, log, epoch,
+        if config["distributed"]:
+            for task in task_infos:
+                if task.train_sampler is not None:
+                    task.train_sampler.set_epoch(epoch)
+        step = run_one_epoch(model, task_infos, optimizer, scheduler, sched_cadence, config, log, epoch,
                              step, max_steps, max_grad_norm=max_grad_norm, device=device)
         if step > max_steps:
             break
         if sched_cadence == "epochs":
             scheduler.step()
 
-    return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, train_loaders, valid_loaders, optimizer,
+    return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, task_infos, optimizer,
                      scheduler, config, device, bool(config.get("eval_checkpoints")),
                      bool(config.get("save_checkpoints")))
 
 
-def run_one_epoch(model, task_infos, valid_loaders, optimizer, scheduler, sched_cadence, config, log, epoch, step,
+def run_one_epoch(model, task_infos, optimizer, scheduler, sched_cadence, config, log, epoch, step,
                   max_steps=float("inf"), opt_params=None, max_grad_norm=0, device=None):
     """ Run one training epoch. """
-    steps_per_epoch = max(len(t.loader) for t in task_infos)
-    task_loaders = {t.name: t.loader for t in task_infos}
-    log.begin_epoch(step, epoch, model, task_loaders, valid_loaders, optimizer, device)
+    steps_per_epoch = max(len(t.train_loader) for t in task_infos)
+    log.begin_epoch(step, epoch, model, task_infos, optimizer, device)
 
     # Only optimize the given layers during this epoch.
     saved_opt_state = None
@@ -318,7 +309,7 @@ def run_one_epoch(model, task_infos, valid_loaders, optimizer, scheduler, sched_
         saved_opt_state = limit_model_optimization(model, opt_params)
 
     # Align loaders: cycle shorter ones so every step has a batch from every task.
-    aligned_iters = [itertools.islice(itertools.cycle(t.loader), steps_per_epoch) for t in task_infos]
+    aligned_iters = [itertools.islice(itertools.cycle(t.train_loader), steps_per_epoch) for t in task_infos]
 
     model.train()
     for batches in zip(*aligned_iters):
@@ -326,7 +317,7 @@ def run_one_epoch(model, task_infos, valid_loaders, optimizer, scheduler, sched_
         total_loss, losses, outs, labels = run_one_step(task_infos, batches, optimizer, max_grad_norm, device)
         if sched_cadence == "steps":
             scheduler.step()
-        log.end_step(step, epoch, total_loss, outs, labels, model, all_losses=losses)
+        log.end_step(step, epoch, total_loss, outs, labels, model, task_infos, all_losses=losses)
         step += 1
         if step > max_steps:
             break
@@ -335,7 +326,7 @@ def run_one_epoch(model, task_infos, valid_loaders, optimizer, scheduler, sched_
     if opt_params:
         restore_grad_state(model, saved_opt_state)
 
-    log.end_epoch(step - 1, epoch, model, task_loaders, valid_loaders, optimizer, scheduler, config, device)
+    log.end_epoch(step - 1, epoch, model, task_infos, optimizer, scheduler, config, device)
     return step
 
 

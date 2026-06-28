@@ -176,9 +176,13 @@ def test_one_encoder(run_config, encoder_config, model, model_without_ddp, train
 
     # HACK: We are using the logger to handle metric computation for us. Kinda hacky.
     metric_fns = metric_fns_from_config(run_config, model)
-    log = StandardLog(model=None, expected_steps=0, save_freq=0, checkpoint_initial_model=False, metric_fns=metric_fns,
+    task_info = datasets.TaskInfo(
+        name="", train_loader=train_loader, test_loaders=valid_loaders, train_sampler=None,
+        model=model, metric_fns=metric_fns,
+    )
+    log = StandardLog(model=None, expected_steps=0, save_freq=0, checkpoint_initial_model=False,
                       eval_full_train_set=run_config.get("eval_train_set", False))
-    log.maybe_save_and_eval(0, 0, model, train_loader, valid_loaders, None, None, run_config, device,
+    log.maybe_save_and_eval(0, 0, model, [task_info], None, None, run_config, device,
                             should_eval=True, should_save=False)
     return log.recorded_metrics
 

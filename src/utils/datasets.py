@@ -436,26 +436,48 @@ def _ensure_default_preprocess_config(
 
 @dataclass
 class TaskInfo:
-    """Simple structure to bundle together all the information pertaining to a task."""
+    """Bundle of all information pertaining to a single training task."""
     name: str
-    model: torch.nn.Module
-    loader: DataLoader
-    loss_fns: dict[str, Callable]
+    train_loader: DataLoader
+    test_loaders: dict  # e.g. {"Test": loader}
+    train_sampler: Any
+    model: torch.nn.Module = None
+    loss_fns: dict = None
+    metric_fns: list = None
     loss_scale: float = 1.0
 
 
-class TaskSlice(torch.nn.Module):
+class TaskSlice:
     """
     Wraps a multi-task model to expose a single task's output. It is assumed that this model returns an N-tuple, with
     one output for each of its N heads. The task's output is identified by index.
+
+    Note that this should not be used as a submodule for any other modules; it is not actually a torch.nn.Module.
     """
     def __init__(self, model: torch.nn.Module, task_idx: int):
         super().__init__()
         self.model = model
         self.task_idx = task_idx
 
-    def forward(self, x):
-        return self.model(x)[self.task_idx]
+    def forward(self, *args, **kwargs):
+        return self.model(*args, **kwargs)[self.task_idx]
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def __getattribute__(self, name: str):
+        """
+        The reason we override this (incredibly sensitive) function is to be as transparent a wrapper as possible.
+        By doing this, we allow callers to call methods like `named_modules()` and get a result that does not add a
+        layer of wrapper indirection, so that methods depending on module name work exactly the same (e.g. the module
+        name will be "name" instead of "model.name").
+
+        Note, however, that special dunder methods like `__len__()` will not be properly delegated with this method.
+        """
+        if name in ("model", "forward", "__call__", "task_idx"):
+            return super().__getattribute__(name)
+        else:
+            return self.model.__getattribute__(name)
 
 
 class DTD(datasets.DTD):
@@ -863,7 +885,8 @@ def check_data_config(config: dict, dataset_required=True):
             raise RuntimeError('"train_config.tasks" must be a non-empty list.')
         for i, task in enumerate(tasks):
             if not isinstance(task, dict) or "dataset" not in task:
-                raise RuntimeError(f'Each entry in "train_config.tasks" must have a "dataset" key (missing at index {i}).')
+                raise RuntimeError(
+                    f'Each entry in "train_config.tasks" must have a "dataset" key (missing at index {i}).')
     else:
         ensure_config_param(config, ["train_config", "dataset"], of_type(str), required=dataset_required)
     ensure_config_param(config, ["train_config", "batch_size"], _and(of_type(int), gt_zero), required=False)
@@ -871,31 +894,47 @@ def check_data_config(config: dict, dataset_required=True):
     ensure_config_param(config, ["train_config", "data_preprocessing"], validate_preprocess_config, required=False)
 
 
-def load_dataset_from_config(config: Dict):
+def load_dataset_from_config(config: Dict) -> Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]:
     """
     Load datasets from config. Delegates to `make_datasets()`.
 
-    In single-task mode (train_config.dataset), returns a single tuple:
-        (train_data, test_data, input_shape, num_classes)
+    :param config: The dataset configuration.
+    :return:
+        train_data (torch.utils.data.Dataset): The training set.
+        test_data (torch.utils.data.Dataset): The test set.
+        input_shape (torch.Size | tuple): The size of the images [C, H, W].
+        num_classes (int): The number of classes for classification.
+    """
+    return make_datasets(config["train_config"]["dataset"], config["data_path"],
+                         config["train_config"].get("batch_size"),
+                         config["train_config"].get("max_batches"),
+                         config["train_config"].get("data_preprocessing"))
 
-    In multi-task mode (train_config.tasks), returns a list of such tuples, one per task.
+
+def load_tasks_from_config(config: Dict) -> List[Tuple[Dataset, Dataset, Union[tuple, torch.Size], int]]:
+    """
+    Load one or more tasks from config. Delegates to `load_dataset_from_config()`.
+
     Per-task values for batch_size, max_batches, and data_preprocessing override the global
     train_config values when present.
+
+    :param config: The dataset configuration.
+    :return:
+        list: a list of dataset tuples. See `load_dataset_from_config()` for tuple contents.
     """
     train_cfg = config["train_config"]
     if "tasks" in train_cfg:
+        # Load multiple tasks.
         results = []
         for task in train_cfg["tasks"]:
             batch_size = task.get("batch_size", train_cfg.get("batch_size"))
             max_batches = task.get("max_batches", train_cfg.get("max_batches"))
             preprocess = task.get("data_preprocessing", train_cfg.get("data_preprocessing"))
-            results.append(make_datasets(task["dataset"], config["data_path"],
-                                         batch_size, max_batches, preprocess))
+            results.append(make_datasets(task["dataset"], config["data_path"], batch_size, max_batches, preprocess))
         return results
     else:
-        return make_datasets(train_cfg["dataset"], config["data_path"],
-                             train_cfg.get("batch_size"), train_cfg.get("max_batches"),
-                             train_cfg.get("data_preprocessing"))
+        # Fall back on loading a single dataset.
+        return [load_dataset_from_config(config)]
 
 
 def add_dataset_arg(parser, dflt_data_dir=Path("./data").resolve()):

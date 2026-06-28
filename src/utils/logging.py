@@ -22,7 +22,6 @@ except ImportError:
 
 import utils.distributed as dist
 from utils import make_pretty
-from utils.datasets import TaskSlice  # TODO: Can remove dependency on datasets once TaskSlices are given by the caller
 
 
 class SmoothedValue:
@@ -201,9 +200,8 @@ def overall_metrics(model, data_loader, header, metric_fns, device, delimiter="\
 
 class BaseLog:
 
-    def __init__(self, metric_fns, metrics_to_print, eval_freq, save_freq, save_dir=None, model_name="",
+    def __init__(self, metrics_to_print, eval_freq, save_freq, save_dir=None, model_name="",
                  use_wandb=False, checkpoint_initial_model=True, eval_full_train_set=False, print_delimiter="\t"):
-        self.metric_fns = metric_fns
         self.metrics_to_print = metrics_to_print
         self.save_freq = save_freq
         self.eval_freq = eval_freq
@@ -265,13 +263,13 @@ class BaseLog:
                         self.define_wandb_metric(k, summary="last")
             wandb.log(metrics, step=it)
 
-    def begin(self, model, train_loader, valid_loaders, optimizer, scheduler, config, device):
+    def begin(self, model, task_infos, optimizer, scheduler, config, device):
         self.start_time = time()
         if self.checkpoint_initial_model and (self.save_freq > 0 or self.eval_freq > 0):
-            self.maybe_save_and_eval(0, 0, model, train_loader, valid_loaders, optimizer, scheduler, config, device)
+            self.maybe_save_and_eval(0, 0, model, task_infos, optimizer, scheduler, config, device)
 
     @torch.inference_mode()
-    def maybe_save_and_eval(self, it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
+    def maybe_save_and_eval(self, it, epoch, model, task_infos, optimizer, scheduler, config, device,
                             should_eval=None, should_save=None):
         # If the caller has made a particular request, honor it. Otherwise...
         if should_save is None:
@@ -287,23 +285,21 @@ class BaseLog:
 
         metrics = {"Epoch": epoch}
 
-        # Run a test on the full dataset.
+        # Run evaluation on each task's test loaders (and optionally train loaders).
         if should_eval:
             self.last_eval_step = it
-            if self.eval_full_train_set:
-                loaders = ({f"{k}/Train": (v, i) for i, (k, v) in enumerate(train_loaders.items())}
-                           if len(train_loaders) > 1 else {"Train": next(train_loaders.values())})
-                loaders.update(valid_loaders)
-            else:
-                loaders = valid_loaders
             self.info(f"Checkpoint {it} Performance:")
-            for key, loader_info in loaders.items():
-                if isinstance(loader_info, tuple):
-                    loader, task_idx = loader_info
-                    eval_model = TaskSlice(model, task_idx)
-                else:
-                    loader, eval_model = loader_info, model
-                metric_dict = overall_metrics(eval_model, loader, key, self.metric_fns, device, self.delimiter,
+            eval_list = []
+            if self.eval_full_train_set:
+                for task in task_infos:
+                    key = f"{task.name}/Train" if task.name else "Train"
+                    eval_list.append((key, task.train_loader, task.model, task.metric_fns or []))
+            for task in task_infos:
+                for split_name, loader in task.test_loaders.items():
+                    key = f"{task.name}/{split_name}" if task.name else split_name
+                    eval_list.append((key, loader, task.model, task.metric_fns or []))
+            for key, loader, eval_model, metric_fns in eval_list:
+                metric_dict = overall_metrics(eval_model, loader, key, metric_fns, device, self.delimiter,
                                               print_fn=self.info)
                 metric_msg = []
                 for mk, mv in metric_dict.items():
@@ -342,9 +338,9 @@ class BaseLog:
 
         self.record(metrics, it)
 
-    def close(self, it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
-              should_eval=True, should_save=True):
-        self.maybe_save_and_eval(it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device,
+    def close(self, it, epoch, model, task_infos, optimizer, scheduler, config, device, should_eval=True,
+              should_save=True):
+        self.maybe_save_and_eval(it, epoch, model, task_infos, optimizer, scheduler, config, device,
                                  should_eval, should_save)
         if self.start_time is not None:
             total_time_str = str(datetime.timedelta(seconds=int(time() - self.start_time)))
@@ -354,13 +350,11 @@ class BaseLog:
 
 class StandardLog(BaseLog):
 
-    def __init__(self, model, expected_steps, metric_fns, task_names=None, metrics_to_print=tuple(), print_freq=50,
-                 save_freq=256, eval_freq=256, save_dir=None, model_name="", use_wandb=False,
-                 checkpoint_initial_model=True, eval_full_train_set=False, log_gradients=False,
-                 print_delimiter="\t"):
-        super().__init__(metric_fns, metrics_to_print, eval_freq, save_freq, save_dir, model_name, use_wandb,
+    def __init__(self, model, expected_steps, metrics_to_print=tuple(), print_freq=50, save_freq=256, eval_freq=256,
+                 save_dir=None, model_name="", use_wandb=False, checkpoint_initial_model=True,
+                 eval_full_train_set=False, log_gradients=False, print_delimiter="\t"):
+        super().__init__(metrics_to_print, eval_freq, save_freq, save_dir, model_name, use_wandb,
                          checkpoint_initial_model, eval_full_train_set, print_delimiter)
-        self.task_names = task_names if task_names is not None else [""]
         self.expected_steps = expected_steps
         self.steps_in_epoch = 0
         self.epoch_start_step = -1
@@ -377,14 +371,14 @@ class StandardLog(BaseLog):
             if self.log_gradients:
                 wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
-    def begin_epoch(self, it, epoch, model, train_loaders, valid_loaders, optimizer, device):
-        steps = max(len(ldr) for ldr in train_loaders.values())
+    def begin_epoch(self, it, epoch, model, task_infos, optimizer, device):
+        steps = max(len(t.train_loader) for t in task_infos)
         self.info(f"------------ Beginning Epoch {epoch} ({steps} batches) ------------")
         self.epoch_start_step = it
         self.epoch_start_time = self.step_end_time = time()
         self.steps_in_epoch = steps
 
-    def end_epoch(self, it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device):
+    def end_epoch(self, it, epoch, model, task_infos, optimizer, scheduler, config, device):
         self.info(f"---------------------- End Epoch {epoch} ----------------------")
 
         # If the eval function isn't going to recompute performance on train, then compile a summary here instead.
@@ -404,7 +398,7 @@ class StandardLog(BaseLog):
                 if (not self.metrics_to_print) or (mname in self.metrics_to_print):
                     self.info(f"    Train {mname}: {val.global_avg:.3f}")
 
-        self.maybe_save_and_eval(it, epoch, model, train_loaders, valid_loaders, optimizer, scheduler, config, device)
+        self.maybe_save_and_eval(it, epoch, model, task_infos, optimizer, scheduler, config, device)
 
         self.record({"Time/Per Epoch": time() - self.epoch_start_time}, it)
 
@@ -413,16 +407,16 @@ class StandardLog(BaseLog):
         current_lr = optimizer.param_groups[0]["lr"]  # NOTE: assumes only one param group for now.
         self.record({"Time/Data": self.step_start_time - self.step_end_time, "LR": current_lr}, it)
 
-    def end_step(self, it, epoch, loss, out, labels, model, all_losses=None, metric_fns=None):
-        if not metric_fns:
-            metric_fns = self.metric_fns
-
-        # Normalize out/labels to lists for unified single/multi-task handling.
-        # TODO: change to always accept list of outs with names
+    def end_step(self, it, epoch, loss, out, labels, model, task_infos=None, all_losses=None):
         if not isinstance(out, list):
-            out_list, labels_list, task_names = [out], [labels], [""]
-        else:
-            out_list, labels_list, task_names = out, labels, self.task_names
+            out, labels = [out], [labels]
+        if task_infos is None:
+            task_infos = []
+        if task_infos:  # if nonempty,
+            if len(task_infos) != len(out):
+                raise RuntimeError(f"Task info (len={len(task_infos)}) does not match out (len={len(out)})")
+            if len(task_infos) != len(labels):
+                raise RuntimeError(f"Task info (len={len(task_infos)}) does not match labels (len={len(labels)})")
 
         # Compute metrics.
         extra_to_print = []
@@ -430,9 +424,9 @@ class StandardLog(BaseLog):
         metrics = {}
         if all_losses is not None and len(all_losses) > 1:
             metrics.update({k: v.item() for k, v in all_losses.items()})
-        for task_name, out_i, labels_i in zip(task_names, out_list, labels_list):
-            prefix = f"{task_name}/" if task_name else ""
-            for metric in metric_fns:
+        for task, out_i, labels_i in zip(task_infos, out, labels):
+            prefix = f"{task.name}/" if task.name else ""
+            for metric in (task.metric_fns or []):
                 md = metric(out_i, labels_i)
                 for mk, mv in md.items():
                     key = f"{prefix}{mk}"
@@ -442,11 +436,11 @@ class StandardLog(BaseLog):
             log_gradient_stats(metrics, model)
 
         # Track runtime & memory performance.
-        batch_size = sum(len(l) for l in labels_list)
+        batch_size = sum(len(b) for b in labels)
         metrics["Time/Step"] = time() - self.step_end_time
         non_bsize_metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
         if torch.cuda.is_available():
-            device = labels_list[0].device
+            device = labels[0].device
             non_bsize_metrics["Max Mem"] = torch.cuda.max_memory_allocated(device) / 1024.0 / 1024.0
             torch.cuda.reset_peak_memory_stats(device)
 

@@ -21,6 +21,7 @@ import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
 from assembly import model_from_config, validate_part, validate_part_list
+from utils.datasets import TaskInfo
 from utils import as_strings, ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
 
 # Get the resolved path of this script, before we switch directories.
@@ -258,40 +259,24 @@ def setup_and_train(parser, config):
     if dist.is_main_process():
         argutils.prepare_wandb(config)
 
-    logging.info("Loading dataset.")
-    dataset_result = datasets.load_dataset_from_config(config)
+    logging.info("Loading dataset(s).")
+    task_datas = datasets.load_tasks_from_config(config)
     train_cfg = config["train_config"]
     workers = config["workers"]
     logging.info(f"Using {workers} workers for data loading.")
 
-    if isinstance(dataset_result, list):
-        # Multi-task mode.
-        task_names = [task["dataset"] for task in train_cfg["tasks"]]
-        input_shape = None
-        num_classes = None
-        train_loaders = {}
-        valid_loaders = {}
-        train_sampler = None
-        for i, (task_name, (train_data, test_data, _, _)) in enumerate(zip(task_names, dataset_result)):
-            task_batch_size = train_cfg["tasks"][i].get("batch_size", train_cfg.get("batch_size", 32))
-            if config["distributed"]:
-                tr_sampler = DistributedSampler(train_data)
-                te_sampler = DistributedSampler(test_data, shuffle=False)
-            else:
-                # noinspection PyTypeChecker
-                tr_sampler = RandomSampler(train_data)
-                # noinspection PyTypeChecker
-                te_sampler = SequentialSampler(test_data)
-            train_loaders[task_name] = DataLoader(
-                train_data, batch_size=task_batch_size, sampler=tr_sampler,
-                num_workers=workers, pin_memory=True, persistent_workers=workers > 1)
-            test_loader = DataLoader(
-                test_data, batch_size=task_batch_size, sampler=te_sampler,
-                num_workers=workers, pin_memory=True, persistent_workers=workers > 1)
-            valid_loaders[f"{task_name}/Test"] = (test_loader, i)
-    else:
-        # Single-task mode.
-        train_data, test_data, input_shape, num_classes = dataset_result
+    if "tasks" in train_cfg and len(train_cfg["tasks"]) != len(task_datas):
+        raise RuntimeError(f"Number of datasets ({len(task_datas)}) and number of tasks "
+                           f"({len(train_cfg['tasks'])}) are mismatched.")
+
+    # Only use input shape & num classes for the single-task case. Otherwise, each task has a different value so these
+    # need to be specified by the model itself.
+    input_shape = task_datas[0][2] if (len(task_datas) == 1) else None
+    num_classes = task_datas[0][3] if (len(task_datas) == 1) else None
+    task_infos = []
+    task_cfgs = train_cfg.get("tasks", [{"dataset": train_cfg.get("dataset")}])
+    for task_cfg, (train_data, test_data, _, _) in zip(task_cfgs, task_datas):
+        task_batch_size = task_cfg.get("batch_size", train_cfg["batch_size"])
         if config["distributed"]:
             train_sampler = DistributedSampler(train_data)
             test_sampler = DistributedSampler(test_data, shuffle=False)
@@ -300,11 +285,11 @@ def setup_and_train(parser, config):
             train_sampler = RandomSampler(train_data)
             # noinspection PyTypeChecker
             test_sampler = SequentialSampler(test_data)
-        batch_size = train_cfg.get("batch_size", 32)
-        train_loaders = DataLoader(train_data, batch_size=batch_size, sampler=train_sampler,
-                                   num_workers=workers, pin_memory=True, persistent_workers=workers > 1)
-        valid_loaders = {"Test": DataLoader(test_data, batch_size=batch_size, sampler=test_sampler,
-                                            num_workers=workers, pin_memory=True, persistent_workers=workers > 1)}
+        train_loader = DataLoader(train_data, batch_size=task_batch_size, sampler=train_sampler, num_workers=workers,
+                                  pin_memory=True, persistent_workers=workers > 1)
+        test_loader = DataLoader(test_data, batch_size=task_batch_size, sampler=test_sampler, num_workers=workers,
+                                 pin_memory=True, persistent_workers=workers > 1)
+        task_infos.append(TaskInfo(task_cfg["dataset"], train_loader, {"Test": test_loader}, train_sampler))
 
     logging.info("Constructing model.")
     model = model_from_config(config, input_shape, num_classes)
@@ -314,7 +299,7 @@ def setup_and_train(parser, config):
             param.requires_grad = True
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
-    raw_metrics = training.train(config, model, train_loaders, valid_loaders, train_sampler, device)
+    raw_metrics = training.train(config, model, task_infos, device)
 
     pe_metrics = training.per_epoch_metrics(raw_metrics)
     save_results(pe_metrics, resfile)
