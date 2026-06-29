@@ -209,7 +209,9 @@ def train(config, model, task_infos, device):
     # Set up distributed training and checkpointing behavior.
     model_without_ddp = model
     if config["distributed"]:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])
+        is_multi_task = len(task_infos) > 1
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device],
+                                                          find_unused_parameters=is_multi_task)
         model_without_ddp = model.module
 
     # Load model checkpoint if requested.
