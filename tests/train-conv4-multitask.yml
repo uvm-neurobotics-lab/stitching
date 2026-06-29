@@ -41,7 +41,11 @@ save_checkpoints: false
 eval_checkpoints: true
 
 train_config:
-  # Global defaults
+  tasks:
+    - dataset: cifar100
+    - dataset: resisc45
+
+  # Same data params for all tasks.
   loss_fn: cross_entropy
   batch_size: 64
   data_preprocessing:
@@ -59,7 +63,3 @@ train_config:
   lr_scheduler_args:
     T_max: *epochs
     eta_min: 0.0
-
-  tasks:
-    - dataset: cifar100
-    - dataset: resisc45

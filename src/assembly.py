@@ -388,24 +388,32 @@ class BaseBlock(nn.Module):
 
 class ClassifierHead(nn.Module):
 
-    def __init__(self, test_input, num_classes, trunk_out_fmt=None, pooled_size=(1, 1)):
+    def __init__(self, num_classes, in_format=None, test_input=None, trunk_out_fmt=None, pooled_size=(1, 1)):
         super().__init__()
-        if test_input is None:
-            raise RuntimeError(f"{type(self).__name__} requires `input_shape` argument.")
         if num_classes is None:
             raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
+        if in_format is None and test_input is None:
+            raise RuntimeError(f"{type(self).__name__} requires either `in_format` or `test_input` to be able to "
+                               "derive input shape.")
         if not (isinstance(pooled_size, int) or (isinstance(pooled_size, Sequence) and len(pooled_size) == 2)):
             raise RuntimeError(f"pooled_size must be an int or a tuple of length 2, but instead got: {pooled_size}.")
-        if trunk_out_fmt:
-            test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
-        if len(test_input.shape[1:]) != 3:
-            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {test_input.shape} "
-                               f"(format = {trunk_out_fmt}).")
+        if test_input:
+            if trunk_out_fmt:
+                test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
+            input_shape = test_input.shape[1:]  # drop batch dimension
+        else:
+            fmt, ch, sz = parse_format(in_format)
+            if not isinstance(sz, Sequence) or len(sz) != 2:
+                raise RuntimeError(f"Input to {type(self).__name__} must be in image format, but got {in_format}.")
+            input_shape = [ch, *sz]
+        if len(input_shape) != 3:
+            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape} "
+                               f"(format = {in_format}, trunk output format = {trunk_out_fmt}).")
         self.pool = nn.AdaptiveAvgPool2d(pooled_size)
         final_length = pooled_size**2 if isinstance(pooled_size, int) else (pooled_size[0] * pooled_size[1])
-        final_length *= test_input.shape[1]
+        final_length *= input_shape[0]
         self.linear = nn.Linear(final_length, num_classes)
-        self.in_fmt = "img"
+        self.in_fmt = in_format or "img"
         self.out_fmt = "vector"
 
     def forward(self, x):
