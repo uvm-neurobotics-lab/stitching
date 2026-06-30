@@ -13,7 +13,7 @@ model:
     - ParallelPart:
         agg: concat
         in_format: img
-        out_format: [img, [128, 28, 28]]
+        out_format: [img, [128, 56, 56]]
         parts:
         - Assembly:  # Convnet 1: CIFAR100
             parts:
