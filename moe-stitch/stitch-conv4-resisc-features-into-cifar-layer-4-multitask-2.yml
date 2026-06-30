@@ -48,6 +48,7 @@ model:
     # ADAPTER COMBINES CONCATTED CIFAR+RESISC FEATURES
     - SimpleAdapter:
         frozen: false
+        init_identity: true
         in_channels: 128
         out_channels: 64
         num_conv: 1
@@ -70,8 +71,8 @@ model:
         agg: none
         in_format: [img, [64, 14, 14]]
         parts:
-        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: [4, 4], num_classes: 100}  # CIFAR100 Head
-        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: [4, 4], num_classes: 45}  # RESISC45 Head
+        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 100}  # CIFAR100 Head
+        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 45}  # RESISC45 Head
 
 deterministic: false
 eval_checkpoints: true

@@ -1,5 +1,7 @@
 #
-# Given a CIFAR-100 Conv4 base model, how can we incorporate RESISC45 features into the final layer?
+# Given a CIFAR-100 Conv4 base model, how can we import RESISC45 features into it?
+# Here we take just the early stages of a RESISC model.
+# This config performs transfer on multiple tasks simultaneously, one head per task.
 #
 
 model:
@@ -7,7 +9,7 @@ model:
     input_shape: [3, 224, 224]
     parts:
 
-    # LAYERS 1, 2, 3
+    # LAYERS 1, 2
     - ParallelPart:
         agg: concat
         in_format: img
@@ -20,11 +22,11 @@ model:
                 model_name: convnet
                 num_blocks: 4
                 pretrained: false
-                ckp_path: ../experiments/from-scratch/conv4/cifar100/checkpoint.pth
+                ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
                 block_input: x
-                block_output: encoder.block3
+                block_output: encoder.block2
                 in_format: img
-                out_format: [img, [64, 28, 28]]
+                out_format: [img, [64, 56, 56]]
         - Assembly:  # Convnet 2: RESISC45
             parts:
             - Subnet:
@@ -32,11 +34,11 @@ model:
                 model_name: convnet
                 num_blocks: 4
                 pretrained: false
-                ckp_path: ../experiments/from-scratch/conv4/resisc45/checkpoint.pth
+                ckp_path: experiments/from-scratch/conv4/resisc45/checkpoint.pth
                 block_input: x
-                block_output: encoder.block3
+                block_output: encoder.block2
                 in_format: img
-                out_format: [img, [64, 28, 28]]
+                out_format: [img, [64, 56, 56]]
             - SimpleAdapter:
                 frozen: false
                 in_channels: 64
@@ -44,36 +46,45 @@ model:
                 num_conv: 1
                 kernel_size: 1
                 padding: 0
+    # ADAPTER COMBINES CONCATTED CIFAR+RESISC FEATURES
     - SimpleAdapter:
         frozen: false
+        init_identity: true
         in_channels: 128
         out_channels: 64
         num_conv: 1
 
-    # LAYER 4: CIFAR100 only
+    # LAYERS 3, 4: CIFAR100 only
     - Subnet:
         frozen: true
         model_name: convnet
         num_blocks: 4
         pretrained: false
-        ckp_path: ../experiments/from-scratch/conv4/cifar100/checkpoint.pth
-        block_input: encoder.block4
+        ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
+        block_input: encoder.block3
         block_output: encoder.block4
-        in_format: [img, [64, 28, 28]]
+        in_format: [img, [64, 56, 56]]
         out_format: [img, [64, 14, 14]]
 
-    # CLASSIFIER HEAD
-    head:
-      ClassifierHead: {pooled_size: 4}
+    # CLASSIFIER HEADS
+    # NOTE: Number of heads must match number of tasks below.
+    - ParallelPart:
+        agg: none
+        in_format: [img, [64, 14, 14]]
+        parts:
+        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 100}  # CIFAR100 Head
+        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 45}  # RESISC45 Head
 
 deterministic: false
 eval_checkpoints: true
 save_checkpoints: false
 
-datasets: !include default-datasets.yml
-
 train_config:
-  # Dataset
+  # Datasets
+  tasks:
+    - dataset: cifar100
+    - dataset: resisc45
+  # Same preprocessing/opt params for all tasks.
   data_preprocessing:
     image_size: 224
     data_augmentation: default
