@@ -190,8 +190,8 @@ def validate_config(config, print_config=True, dataset_required=True):
         ensure_config_param(config, "model", _and(of_type(dict), validate_part))
 
     # Now check values related to training the model.
-    is_multi = "tasks" in config.get("train_config", {})
-    datasets.check_data_config(config, dataset_required=(dataset_required and not is_multi))
+    ensure_config_param(config, "workers", of_type(int), dflt=NUM_CORES)
+    datasets.check_data_config(config, dataset_required=dataset_required)
     training.check_train_config(config)
 
     return config
@@ -268,6 +268,7 @@ def setup_and_train(parser, config):
     if "tasks" in train_cfg and len(train_cfg["tasks"]) != len(task_datas):
         raise RuntimeError(f"Number of datasets ({len(task_datas)}) and number of tasks "
                            f"({len(train_cfg['tasks'])}) are mismatched.")
+    num_tasks = len(task_datas)
 
     # Only use input shape & num classes for the single-task case. Otherwise, each task has a different value so these
     # need to be specified by the model itself.
@@ -285,8 +286,11 @@ def setup_and_train(parser, config):
             train_sampler = RandomSampler(train_data)
             # noinspection PyTypeChecker
             test_sampler = SequentialSampler(test_data)
-        train_loader = DataLoader(train_data, batch_size=task_batch_size, sampler=train_sampler, num_workers=workers,
-                                  pin_memory=True, persistent_workers=workers > 1)
+        # Since the train loaders will be used simultaneously, we want to divide the workers among them.
+        # But the test loaders will be used one-at-a-time so it seems okay to give all workers to each one.
+        tr_workers = (workers // num_tasks) + 1 if (num_tasks > 1) else workers
+        train_loader = DataLoader(train_data, batch_size=task_batch_size, sampler=train_sampler, num_workers=tr_workers,
+                                  pin_memory=True, persistent_workers=tr_workers > 1)
         test_loader = DataLoader(test_data, batch_size=task_batch_size, sampler=test_sampler, num_workers=workers,
                                  pin_memory=True, persistent_workers=workers > 1)
         task_infos.append(TaskInfo(task_cfg["dataset"], train_loader, {"Test": test_loader}, train_sampler))
