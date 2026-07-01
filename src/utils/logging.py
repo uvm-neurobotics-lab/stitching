@@ -13,6 +13,7 @@ import warnings
 from collections import defaultdict, deque
 from time import time, strftime, gmtime
 
+import psutil
 import torch
 
 try:
@@ -367,7 +368,8 @@ class StandardLog(BaseLog):
             self.define_wandb_metric("Epoch", "last")
             self.define_wandb_metric("Loss", "last")
             self.define_wandb_metric("Time/Total", "last")
-            self.define_wandb_metric("Max Mem", "max")
+            self.define_wandb_metric("GPU Mem", "max")
+            self.define_wandb_metric("Proc Mem", "max")
             if self.log_gradients:
                 wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
 
@@ -389,7 +391,7 @@ class StandardLog(BaseLog):
             for step in range(self.epoch_start_step, it + 1):
                 if step in self.recorded_metrics:
                     for k, v in self.recorded_metrics[step].items():
-                        if k in ("Epoch", "LR", "Max Mem") or k.startswith("Time/"):  # Don't accumulate these metrics.
+                        if k in ("Epoch", "LR", "GPU Mem", "Proc Mem") or k.startswith("Time/"):  # Don't accumulate.
                             continue
                         summaries[k].update(v, self.recorded_counts.get(step, 1))
             for mname, val in summaries.items():
@@ -441,8 +443,9 @@ class StandardLog(BaseLog):
         non_bsize_metrics["Time/Img Per Sec"] = batch_size / (time() - self.step_start_time)
         if torch.cuda.is_available():
             device = labels[0].device
-            non_bsize_metrics["Max Mem"] = torch.cuda.max_memory_allocated(device) / 1024.0 / 1024.0
+            non_bsize_metrics["GPU Mem"] = torch.cuda.max_memory_allocated(device) / 1024.0 / 1024.0
             torch.cuda.reset_peak_memory_stats(device)
+        non_bsize_metrics["Proc Mem"] = psutil.Process().memory_info().rss / 1024.0 / 1024.0
 
         # Record metrics
         self.record(non_bsize_metrics, it, 1)
@@ -458,7 +461,7 @@ class StandardLog(BaseLog):
                    f"ETA: {datetime.timedelta(seconds=int(eta))}"]
             # Print a default set of metrics if not specified by the user.
             to_print = (self.metrics_to_print if self.metrics_to_print else
-                        ["Loss", "Time/Step", "Time/Data", "Time/Img Per Sec", "Max Mem"] + extra_to_print)
+                        ["Loss", "Time/Step", "Time/Data", "Time/Img Per Sec", "GPU Mem", "Proc Mem"] + extra_to_print)
             for mk in to_print:
                 if mk in self.smoothed_metrics:
                     mv = self.smoothed_metrics[mk]

@@ -397,7 +397,7 @@ class ClassifierHead(nn.Module):
                                "derive input shape.")
         if not (isinstance(pooled_size, int) or (isinstance(pooled_size, Sequence) and len(pooled_size) == 2)):
             raise RuntimeError(f"pooled_size must be an int or a tuple of length 2, but instead got: {pooled_size}.")
-        if test_input:
+        if test_input is not None:
             if trunk_out_fmt:
                 test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
             input_shape = test_input.shape[1:]  # drop batch dimension

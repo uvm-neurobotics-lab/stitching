@@ -172,6 +172,24 @@ def print_memory_stats(rank=None):
     logging.info("")
 
 
+def _repeat_loader(loader, total_steps):
+    """
+    Yield up to `total_steps` batches from `loader`, restarting it (via a fresh iterator) whenever it's exhausted.
+
+    This is like itertools.cycle, except cycle() unconditionally saves every yielded item into an internal list so it
+    can replay them later. That is fine for small/cheap items, but here the yielded items are full batches of image
+    tensors, so cycle() ends up caching an ever-growing chunk of the dataset in memory as the epoch progresses.
+    Re-iterating the loader instead just asks for a fresh iterator (which also reshuffles, unlike cycle's replay).
+    """
+    steps = 0
+    while steps < total_steps:
+        for batch in loader:
+            if steps >= total_steps:
+                return
+            yield batch
+            steps += 1
+
+
 def compute_loss_scales(task_infos: list[TaskInfo], device: Union[str, int, torch.device], num_batches: int = 3):
     """Compute initial loss magnitudes for each task to use as normalization denominators."""
     if len(task_infos) == 1:
@@ -310,8 +328,8 @@ def run_one_epoch(model, task_infos, optimizer, scheduler, sched_cadence, config
     if opt_params:
         saved_opt_state = limit_model_optimization(model, opt_params)
 
-    # Align loaders: cycle shorter ones so every step has a batch from every task.
-    aligned_iters = [itertools.islice(itertools.cycle(t.train_loader), steps_per_epoch) for t in task_infos]
+    # Align loaders: repeat shorter ones so every step has a batch from every task.
+    aligned_iters = [_repeat_loader(t.train_loader, steps_per_epoch) for t in task_infos]
 
     model.train()
     for batches in zip(*aligned_iters):
