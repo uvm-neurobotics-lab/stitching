@@ -1,0 +1,126 @@
+#
+# Given a CIFAR-100 Conv4 base model, how can we import RESISC45 features into it?
+# Here we take just the middle stages of a RESISC model.
+# This config performs transfer on multiple tasks simultaneously, one head per task.
+#
+
+model:
+  Assembly:
+    input_shape: [3, 224, 224]
+    parts:
+
+    # LAYER 1: CIFAR100 only
+    - Subnet:
+        frozen: true
+        model_name: convnet
+        num_blocks: 4
+        pretrained: false
+        ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
+        block_input: x
+        block_output: encoder.block1
+        in_format: img
+        out_format: [img, [64, 112, 112]]
+
+    # LAYERS 1, 2: Both CIFAR and RESISC
+    - ParallelPart:
+        agg: concat
+        out_format: [img, [128, 28, 28]]
+        parts:
+        - Assembly:  # Convnet 1: CIFAR100
+            parts:
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
+                block_input: encoder.block2
+                block_output: encoder.block3
+                in_format: img
+                out_format: [img, [64, 28, 28]]
+        - Assembly:  # Convnet 2: RESISC45
+            parts:
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 64
+                out_channels: 64
+                num_conv: 1
+                kernel_size: 1
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: experiments/from-scratch/conv4/resisc45/checkpoint.pth
+                block_input: encoder.block2
+                block_output: encoder.block3
+                in_format: img
+                out_format: [img, [64, 28, 28]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 64
+                out_channels: 64
+                num_conv: 1
+                kernel_size: 1
+    # ADAPTER COMBINES CONCATTED CIFAR+RESISC FEATURES
+    - SimpleAdapter:
+        frozen: false
+        init_identity: true
+        in_channels: 128
+        out_channels: 64
+        num_conv: 1
+
+    # LAYER 4: CIFAR100 only
+    - Subnet:
+        frozen: true
+        model_name: convnet
+        num_blocks: 4
+        pretrained: false
+        ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
+        block_input: encoder.block4
+        block_output: encoder.block4
+        in_format: [img, [64, 28, 28]]
+        out_format: [img, [64, 14, 14]]
+
+    # CLASSIFIER HEADS
+    - ParallelPart:
+        agg: none
+        in_format: [img, [64, 14, 14]]
+        parts:
+        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 100}  # CIFAR100 Head
+        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 45}  # RESISC45 Head
+
+deterministic: false
+eval_checkpoints: true
+save_checkpoints: false
+
+train_config:
+  # Datasets
+  tasks:
+    - dataset: cifar100
+    - dataset: resisc45
+  # Same preprocessing/opt params for all tasks.
+  data_preprocessing:
+    image_size: 224
+    data_augmentation: default
+
+  # General Params
+  seed: 12345
+  epochs: &epochs 10
+
+  # Optimization
+  batch_size: 256
+  # TODO: consider adding label smoothing
+  loss_fn: cross_entropy
+
+  # TODO: Consider adding linear warmup to 1.0 over 500 steps.
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: *epochs
+    eta_min: 0.0
+  # TODO: Consider adding gradient clipping:
+  # max_grad_norm: 1.0
+  optimizer: AdamW
+  optimizer_args:
+    lr: 0.001
+    weight_decay: 0.005
