@@ -1,5 +1,7 @@
 #
-# Given a CIFAR-100 Conv4 base model, how can we incorporate RESISC45 features into the final layer?
+# Given a CIFAR-100 Conv4 base model, how can we import RESISC45 features into it?
+# Here we take just the last stage of a RESISC model. The classifier gets features resulting from both CIFAR Stage 4
+# and RESISC Stage 4.
 # This config performs transfer on multiple tasks simultaneously, one head per task.
 #
 
@@ -8,11 +10,22 @@ model:
     input_shape: [3, 224, 224]
     parts:
 
-    # LAYERS 1, 2, 3
+    # LAYERS 1, 2, 3: CIFAR100 only
+    - Subnet:
+        frozen: true
+        model_name: convnet
+        num_blocks: 4
+        pretrained: false
+        ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
+        block_input: x
+        block_output: encoder.block3
+        in_format: img
+        out_format: [img, [64, 28, 28]]
+
+    # LAYER 4: Both CIFAR and RESISC
     - ParallelPart:
         agg: concat
-        in_format: img
-        out_format: [img, [128, 28, 28]]
+        out_format: [img, [128, 14, 14]]
         parts:
         - Assembly:  # Convnet 1: CIFAR100
             parts:
@@ -22,57 +35,42 @@ model:
                 num_blocks: 4
                 pretrained: false
                 ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
-                block_input: x
-                block_output: encoder.block3
+                block_input: encoder.block4
+                block_output: encoder.block4
                 in_format: img
-                out_format: [img, [64, 28, 28]]
+                out_format: [img, [64, 14, 14]]
         - Assembly:  # Convnet 2: RESISC45
             parts:
-            - Subnet:
-                frozen: true
-                model_name: convnet
-                num_blocks: 4
-                pretrained: false
-                ckp_path: experiments/from-scratch/conv4/resisc45/checkpoint.pth
-                block_input: x
-                block_output: encoder.block3
-                in_format: img
-                out_format: [img, [64, 28, 28]]
             - SimpleAdapter:
                 frozen: false
                 in_channels: 64
                 out_channels: 64
                 num_conv: 1
                 kernel_size: 1
-                padding: 0  # FIXME: Why is this 0 padded???
-    # ADAPTER COMBINES CONCATTED CIFAR+RESISC FEATURES
-    - SimpleAdapter:
-        frozen: false
-        init_identity: true
-        in_channels: 128
-        out_channels: 64
-        num_conv: 1
-
-    # LAYER 4: CIFAR100 only
-    - Subnet:
-        frozen: true
-        model_name: convnet
-        num_blocks: 4
-        pretrained: false
-        ckp_path: experiments/from-scratch/conv4/cifar100/checkpoint.pth
-        block_input: encoder.block4
-        block_output: encoder.block4
-        in_format: [img, [64, 28, 28]]
-        out_format: [img, [64, 14, 14]]
+            - Subnet:
+                frozen: true
+                model_name: convnet
+                num_blocks: 4
+                pretrained: false
+                ckp_path: experiments/from-scratch/conv4/resisc45/checkpoint.pth
+                block_input: encoder.block4
+                block_output: encoder.block4
+                in_format: img
+                out_format: [img, [64, 14, 14]]
+            - SimpleAdapter:
+                frozen: false
+                in_channels: 64
+                out_channels: 64
+                num_conv: 1
+                kernel_size: 1
 
     # CLASSIFIER HEADS
-    # NOTE: Number of heads must match number of tasks below.
     - ParallelPart:
         agg: none
-        in_format: [img, [64, 14, 14]]
+        in_format: [img, [128, 14, 14]]
         parts:
-        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 100}  # CIFAR100 Head
-        - ClassifierHead: {in_format: [img, [64, 14, 14]], pooled_size: 4, num_classes: 45}  # RESISC45 Head
+        - ClassifierHead: {in_format: [img, [128, 14, 14]], pooled_size: 4, num_classes: 100}  # CIFAR100 Head
+        - ClassifierHead: {in_format: [img, [128, 14, 14]], pooled_size: 4, num_classes: 45}  # RESISC45 Head
 
 deterministic: false
 eval_checkpoints: true
