@@ -6,7 +6,7 @@
 #SBATCH --job-name=stitch
 #SBATCH --time=03:00:00
 #SBATCH --partition=nvgpu
-#SBATCH --constraint="GPU_SKU:H100|GPU_SKU:H200"
+#SBATCH --constraint="GPU_ANY"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
