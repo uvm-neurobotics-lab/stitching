@@ -130,4 +130,4 @@ def last_epoch_only(full_df):
     # By setting the series index to the same as the DF index, we make it possible to filter using '=='.
     epochs = pd.Series(full_df.index.get_level_values("Epoch"), index=full_df.index)
     max_epochs = epochs.groupby(level=group_levels).transform("max")
-    return full_df.loc[epochs == max_epochs]
+    return full_df.loc[epochs == max_epochs].copy()
