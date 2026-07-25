@@ -110,6 +110,31 @@ reference setup, a small ConvNet trained from scratch on symbolic observations, 
 [`tests/rl-ppo-mlp-minigrid-flat.yml`](tests/rl-ppo-mlp-minigrid-flat.yml) reproduces RL Zoo's tuned MiniGrid
 configuration, which is the one to compare against when checking the algorithm itself.
 
+## Watch a Trained Policy
+
+[`src/rl_render.py`](src/rl_render.py) replays a saved policy and records it to an mp4, reporting how each episode
+went. Point it at a run directory:
+
+```bash
+python src/rl_render.py experiments/poc/go-to-red-ball-nodists -n 8
+```
+
+The frames come from Gymnasium itself (MiniGrid draws them, and `render_mode="rgb_array"` hands them over as
+arrays); Stable-Baselines3's `VecVideoRecorder` encodes them, which is the same path RL Baselines3 Zoo uses. It
+needs `moviepy`, which is in `environment.yml`.
+
+Pass `--checkpoint` to watch an earlier stage of training, which is the easiest way to see a policy improve:
+
+```bash
+python src/rl_render.py experiments/poc/go-to-red-ball-nodists --checkpoint model-20480.pth -n 8
+```
+
+By default the environment is seeded with the run's *evaluation* seed, so you are watching layouts the agent was
+scored on rather than ones it trained on. Use `--seed` to pick your own, and `--stochastic` to sample from the
+policy the way it behaved while training instead of taking its most likely action.
+
+## Notes
+
 Note that RL parallelizes by stepping many environments at once (`--n-envs`), **not** by DDP. Do not launch
 `rl_train.py` under `torchrun` with more than one process; it would start several identical runs competing to write
 the same output files, and the script refuses to run if it detects one.

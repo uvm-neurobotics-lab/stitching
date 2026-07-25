@@ -153,7 +153,7 @@ def check_env_config(config):
                            f"'{benchmark.name}' (e.g. 'BabyAI-GoToRedBallNoDists-v0'). Original error: {e}")
 
 
-def make_vec_envs(config, n_envs=None, seed=None, is_eval=False):
+def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=None):
     """
     Build one vectorized environment according to the config.
 
@@ -162,6 +162,7 @@ def make_vec_envs(config, n_envs=None, seed=None, is_eval=False):
         n_envs: (Optional) Override the number of parallel environments.
         seed: (Optional) Override the seed.
         is_eval: Whether this is the evaluation environment, which uses `eval_env` if one is configured.
+        render_mode: (Optional) Gymnasium render mode, e.g. "rgb_array" to capture frames for a video.
     Returns:
         VecEnv: The vectorized environment.
     """
@@ -176,6 +177,8 @@ def make_vec_envs(config, n_envs=None, seed=None, is_eval=False):
     env_kwargs = dict(train_cfg.get("env_kwargs") or {})
     if train_cfg.get("max_episode_steps"):
         env_kwargs["max_episode_steps"] = train_cfg["max_episode_steps"]
+    if render_mode:
+        env_kwargs["render_mode"] = render_mode
 
     # `make_vec_env` applies a Monitor to each env, which is what populates `ep_info_buffer` with the episode
     # returns and lengths that our training metrics are derived from.

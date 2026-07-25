@@ -25,3 +25,4 @@ dependencies:
       - gymnasium  # only needed for RL training
       - minigrid  # only needed for RL training on MiniGrid/BabyAI
       - stable-baselines3>=2.4  # only needed for RL training; 2.4 is the floor for Gymnasium 1.0 support
+      - moviepy  # only needed to record videos of a policy with rl_render.py
