@@ -313,8 +313,8 @@ def train(config, model, task_infos, device):
             scheduler.step()
 
     return log.close(min(step - 1, max_steps), min(epoch, max_epochs), model, task_infos, optimizer,
-                     scheduler, config, device, bool(config.get("eval_checkpoints")),
-                     bool(config.get("save_checkpoints")))
+                     scheduler, config, device, should_eval=bool(config.get("eval_checkpoints")),
+                     should_save=bool(config.get("save_checkpoints")))
 
 
 def run_one_epoch(model, task_infos, optimizer, scheduler, sched_cadence, config, log, epoch, step,

@@ -264,14 +264,19 @@ class BaseLog:
                         self.define_wandb_metric(k, summary="last")
             wandb.log(metrics, step=it)
 
-    def begin(self, model, task_infos, optimizer, scheduler, config, device):
-        self.start_time = time()
-        if self.checkpoint_initial_model and (self.save_freq > 0 or self.eval_freq > 0):
-            self.maybe_save_and_eval(0, 0, model, task_infos, optimizer, scheduler, config, device)
+    def decide_save_and_eval(self, it, should_eval=None, should_save=None):
+        """
+        Decide whether this iteration should be saved and/or evaluated, and record that decision so the same
+        iteration isn't handled twice (the same iteration can legitimately be reported more than once, e.g. the last
+        step of training is both an end-of-epoch and an end-of-training event).
 
-    @torch.inference_mode()
-    def maybe_save_and_eval(self, it, epoch, model, task_infos, optimizer, scheduler, config, device,
-                            should_eval=None, should_save=None):
+        Args:
+            it: The current iteration.
+            should_eval: Force evaluation on or off; None to decide from `eval_freq`.
+            should_save: Force saving on or off; None to decide from `save_freq`.
+        Returns:
+            tuple: (should_save, should_eval), both bools.
+        """
         # If the caller has made a particular request, honor it. Otherwise...
         if should_save is None:
             # Turn on saving if it is time to save.
@@ -284,65 +289,35 @@ class BaseLog:
             should_eval = should_save or (self.eval_freq > 0 and it % self.eval_freq == 0)
         should_eval &= (it != self.last_eval_step)  # but not if we already did it.
 
-        metrics = {"Epoch": epoch}
-
-        # Run evaluation on each task's test loaders (and optionally train loaders).
+        if should_save:
+            self.last_save_step = it
         if should_eval:
             self.last_eval_step = it
-            self.info(f"Checkpoint {it} Performance:")
-            eval_list = []
-            if self.eval_full_train_set:
-                for task in task_infos:
-                    key = f"{task.name}/Train" if task.name else "Train"
-                    eval_list.append((key, task.train_loader, task.model, task.metric_fns or []))
-            for task in task_infos:
-                for split_name, loader in task.test_loaders.items():
-                    key = f"{task.name}/{split_name}" if task.name else split_name
-                    eval_list.append((key, loader, task.model, task.metric_fns or []))
-            for key, loader, eval_model, metric_fns in eval_list:
-                metric_dict = overall_metrics(eval_model, loader, key, metric_fns, device, self.delimiter,
-                                              print_fn=self.info)
-                metric_msg = []
-                for mk, mv in metric_dict.items():
-                    if mk == "Time/Eval Total":
-                        continue  # Special print for this one.
-                    levels = mk.split("/", maxsplit=2)
-                    if len(levels) == 1:
-                        levels = ["Overall", mk]
-                    metrics[f"{levels[0]}/{key} {levels[1]}"] = mv
-                    if (not self.metrics_to_print) or (mk in self.metrics_to_print):
-                        metric_msg.append(f"{mk}: {mv:.3f}")
-                metric_msg = "\t".join(metric_msg)
-                self.info(f"    {key} {metric_msg}"
-                          f" (Time to Eval: {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
+        return should_save, should_eval
 
-        # Save the model.
-        if should_save and dist.is_main_process():
-            self.last_save_step = it
-            # Ensures that we always save the model, not its wrapper. Else we can end up with key mismatches.
-            raw_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
-            save_path = self.save_dir / f"{self.model_name}-{it}.pth"
-            self.info(f"Saving model to: {save_path}")
-            checkpoint = {
-                "model": raw_model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "epoch": epoch,
-                "config": make_pretty(config),
-            }
-            dist.save_on_master(checkpoint, save_path)
-            dist.save_on_master(checkpoint, self.save_dir / "checkpoint.pth")
+    def write_checkpoint(self, checkpoint, it):
+        """ Write the given checkpoint dict to both a step-stamped file and the rolling `checkpoint.pth`. """
+        save_path = self.save_dir / f"{self.model_name}-{it}.pth"
+        self.info(f"Saving model to: {save_path}")
+        dist.save_on_master(checkpoint, save_path)
+        dist.save_on_master(checkpoint, self.save_dir / "checkpoint.pth")
 
-        # Keep track of total time elapsed during training.
-        if self.start_time is not None:
-            metrics["Time/Total"] = time() - self.start_time
+    def begin(self, *args, **kwargs):
+        """ Subclasses should override this to supply the arguments their `maybe_save_and_eval()` expects. """
+        self.start_time = time()
+        if self.checkpoint_initial_model and (self.save_freq > 0 or self.eval_freq > 0):
+            self.maybe_save_and_eval(0, *args, **kwargs)
 
-        self.record(metrics, it)
+    def maybe_save_and_eval(self, it, *args, **kwargs):
+        """
+        Evaluate and/or checkpoint the model, if it is time to do so. What "evaluate" and "checkpoint" mean depends
+        entirely on what is being trained, so subclasses must implement this; use `decide_save_and_eval()` for the
+        shared frequency bookkeeping and `write_checkpoint()` to write the result.
+        """
+        raise NotImplementedError(f"{type(self).__name__} must implement maybe_save_and_eval().")
 
-    def close(self, it, epoch, model, task_infos, optimizer, scheduler, config, device, should_eval=True,
-              should_save=True):
-        self.maybe_save_and_eval(it, epoch, model, task_infos, optimizer, scheduler, config, device,
-                                 should_eval, should_save)
+    def close(self, it, *args, should_eval=True, should_save=True, **kwargs):
+        self.maybe_save_and_eval(it, *args, should_eval=should_eval, should_save=should_save, **kwargs)
         if self.start_time is not None:
             total_time_str = str(datetime.timedelta(seconds=int(time() - self.start_time)))
             self.info(f"Training Complete. Time: {total_time_str}")
@@ -372,6 +347,64 @@ class StandardLog(BaseLog):
             self.define_wandb_metric("Proc Mem", "max")
             if self.log_gradients:
                 wandb.watch(model, log_freq=print_freq)  # log gradient histograms automatically
+
+    def begin(self, model, task_infos, optimizer, scheduler, config, device):
+        # Supply the initial epoch, so that BaseLog.begin() prepends the initial step ahead of it.
+        super().begin(0, model, task_infos, optimizer, scheduler, config, device)
+
+    @torch.inference_mode()
+    def maybe_save_and_eval(self, it, epoch, model, task_infos, optimizer, scheduler, config, device,
+                            should_eval=None, should_save=None):
+        should_save, should_eval = self.decide_save_and_eval(it, should_eval, should_save)
+
+        metrics = {"Epoch": epoch}
+
+        # Run evaluation on each task's test loaders (and optionally train loaders).
+        if should_eval:
+            self.info(f"Checkpoint {it} Performance:")
+            eval_list = []
+            if self.eval_full_train_set:
+                for task in task_infos:
+                    key = f"{task.name}/Train" if task.name else "Train"
+                    eval_list.append((key, task.train_loader, task.model, task.metric_fns or []))
+            for task in task_infos:
+                for split_name, loader in task.test_loaders.items():
+                    key = f"{task.name}/{split_name}" if task.name else split_name
+                    eval_list.append((key, loader, task.model, task.metric_fns or []))
+            for key, loader, eval_model, metric_fns in eval_list:
+                metric_dict = overall_metrics(eval_model, loader, key, metric_fns, device, self.delimiter,
+                                              print_fn=self.info)
+                metric_msg = []
+                for mk, mv in metric_dict.items():
+                    if mk == "Time/Eval Total":
+                        continue  # Special print for this one.
+                    levels = mk.split("/", maxsplit=2)
+                    if len(levels) == 1:
+                        levels = ["Overall", mk]
+                    metrics[f"{levels[0]}/{key} {levels[1]}"] = mv
+                    if (not self.metrics_to_print) or (mk in self.metrics_to_print):
+                        metric_msg.append(f"{mk}: {mv:.3f}")
+                metric_msg = "\t".join(metric_msg)
+                self.info(f"    {key} {metric_msg}"
+                          f" (Time to Eval: {strftime('%H:%M:%S', gmtime(metric_dict['Time/Eval Total']))})")
+
+        # Save the model.
+        if should_save and dist.is_main_process():
+            # Ensures that we always save the model, not its wrapper. Else we can end up with key mismatches.
+            raw_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+            self.write_checkpoint({
+                "model": raw_model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "epoch": epoch,
+                "config": make_pretty(config),
+            }, it)
+
+        # Keep track of total time elapsed during training.
+        if self.start_time is not None:
+            metrics["Time/Total"] = time() - self.start_time
+
+        self.record(metrics, it)
 
     def begin_epoch(self, it, epoch, model, task_infos, optimizer, device):
         steps = max(len(t.train_loader) for t in task_infos)
