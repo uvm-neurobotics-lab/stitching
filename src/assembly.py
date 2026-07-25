@@ -2,6 +2,7 @@
 A class for assembling blocks and adapters into a single module.
 """
 import inspect
+import logging
 from typing import Any, Mapping, Optional, Sequence, Union
 
 import numpy as np
@@ -421,6 +422,120 @@ class ClassifierHead(nn.Module):
         x = self.pool(x)
         x = x.view(x.shape[0], -1)
         return self.linear(x)
+
+
+ACTIVATIONS = {
+    "relu": nn.ReLU,
+    "leakyrelu": nn.LeakyReLU,
+    "gelu": nn.GELU,
+    "elu": nn.ELU,
+    "tanh": nn.Tanh,
+    "sigmoid": nn.Sigmoid,
+    "silu": nn.SiLU,
+    "identity": nn.Identity,
+}
+
+MLP_NORMS = {
+    "layer": nn.LayerNorm,
+    "layernorm": nn.LayerNorm,
+    "ln": nn.LayerNorm,
+    "batch": nn.BatchNorm1d,
+    "batchnorm": nn.BatchNorm1d,
+    "bn": nn.BatchNorm1d,
+}
+
+
+def _lookup(mapping, name, kind):
+    """ Look up a class by a case- and punctuation-insensitive name, with a readable error on failure. """
+    if name is None:
+        return None
+    if not isinstance(name, str):
+        raise ValueError(f"Expected the {kind} to be given as a string, but got: {name!r}")
+    key = name.lower().replace("_", "").replace("-", "")
+    if key not in mapping:
+        raise ValueError(f"Unrecognized {kind}: '{name}'. Choose one of: {sorted(set(mapping))}")
+    return mapping[key]
+
+
+def activation_from_name(name):
+    """ Construct an activation module from its name, or return None if `name` is None. """
+    cls = _lookup(ACTIVATIONS, name, "activation")
+    return cls() if cls else None
+
+
+class FeatureHead(ClassifierHead):
+    """
+    A `ClassifierHead` which produces a fixed-width feature vector rather than class logits.
+
+    Use this when something downstream consumes the vector instead of interpreting it as class scores -- a
+    reinforcement learning policy, for instance, where the actor and critic are built on top of these features.
+    `features_dim` and `num_classes` are synonyms for the width of the output; the containing `Assembly` supplies the
+    latter, so a caller-supplied `num_classes` wins over a `features_dim` written into the config.
+
+    The optional trailing activation matches the reference MiniGrid/BabyAI feature extractors, which end in a ReLU.
+    """
+
+    def __init__(self, features_dim=None, num_classes=None, activation=None, in_format=None, test_input=None,
+                 trunk_out_fmt=None, pooled_size=(1, 1)):
+        width = num_classes if num_classes is not None else features_dim
+        if width is None:
+            raise RuntimeError(f"{type(self).__name__} requires a `features_dim` (or its synonym `num_classes`).")
+        if features_dim is not None and num_classes is not None and features_dim != num_classes:
+            logging.warning(f"{type(self).__name__} was configured with features_dim={features_dim}, but the model "
+                            f"was built with num_classes={num_classes}. These are synonyms; using {num_classes}.")
+        super().__init__(width, in_format, test_input, trunk_out_fmt, pooled_size)
+        self.activation = activation_from_name(activation)
+
+    def forward(self, x):
+        x = super().forward(x)
+        return self.activation(x) if self.activation else x
+
+
+class MLP(nn.Module):
+    """
+    A plain feed-forward stack, for observations which are not images.
+
+    This is the counterpart to `ConvNet` for flat vector inputs, such as those produced by MiniGrid's
+    `FlatObsWrapper`. It accepts `input_shape` and `num_classes` so that it is legal as the top-level part of a model.
+
+    When this is the first part of an `Assembly`, set `in_format: null`: `Assembly.trunk_forward()` assumes its very
+    first input is an image, and any other format would send the input through an image reformat on the way in.
+    """
+
+    def __init__(self, out_features=None, hidden=(), in_features=None, input_shape=None, num_classes=None,
+                 activation="relu", final_activation=None, norm=None, flatten=True, in_format=None,
+                 out_format="vector"):
+        super().__init__()
+        width = num_classes if num_classes is not None else out_features
+        if width is None:
+            raise RuntimeError(f"{type(self).__name__} requires `out_features` (or its synonym `num_classes`).")
+        if in_features is None:
+            if not input_shape:
+                raise RuntimeError(f"{type(self).__name__} requires either `in_features` or `input_shape`.")
+            in_features = int(np.prod(input_shape))
+        # Resolve these up front so a bad name is reported even when there are no hidden layers to apply it to.
+        norm_cls = _lookup(MLP_NORMS, norm, "normalization layer")
+        act_cls = _lookup(ACTIVATIONS, activation, "activation")
+        final_act_cls = _lookup(ACTIVATIONS, final_activation, "activation")
+
+        layers = [nn.Flatten()] if flatten else []
+        widths = [in_features] + list(hidden)
+        for n_in, n_out in zip(widths[:-1], widths[1:]):
+            layers.append(nn.Linear(n_in, n_out))
+            if norm_cls:
+                layers.append(norm_cls(n_out))
+            if act_cls:
+                layers.append(act_cls())
+        layers.append(nn.Linear(widths[-1], width))
+        if final_act_cls:
+            layers.append(final_act_cls())
+
+        self.mlp = nn.Sequential(*layers)
+        self.in_fmt = in_format
+        self.out_fmt = out_format
+
+    def forward(self, x):
+        return self.mlp(x)
 
 
 def validate_part_list(part_list):
