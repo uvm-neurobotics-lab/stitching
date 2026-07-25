@@ -92,8 +92,23 @@ def combine_result_dataframes(results: list[pd.DataFrame], metas: list[dict[str,
     for m in metas:
         meta_keys.update(m.keys())
     meta_keys = list(sorted(meta_keys))
+
+    # Epoch-based runs (supervised) carry an "Epoch" column which becomes an extra index level; the level named
+    # "Step" is then just the row number, which is how this has always worked. Step-based runs (reinforcement
+    # learning) have no "Epoch" at all, so index them by their actual step instead of the row number.
+    have_epoch = ["Epoch" in r.columns for r in results]
+    if any(have_epoch) and not all(have_epoch):
+        raise RuntimeError("Cannot combine epoch-based and step-based results into one dataframe: "
+                           f"{sum(have_epoch)} of {len(results)} results have an 'Epoch' column. Reinforcement "
+                           "learning runs are step-indexed and supervised runs are epoch-indexed, so they need to be "
+                           "loaded from separate directories.")
+    epoch_based = all(have_epoch)
+    if not epoch_based:
+        results = [r.set_index("Step") if "Step" in r.columns else r for r in results]
+
     full_df = pd.concat(results, keys=[tuple(m[k] for k in meta_keys) for m in metas], names=meta_keys + ["Step"])
-    full_df.set_index("Epoch", append=True, inplace=True)
+    if epoch_based:
+        full_df.set_index("Epoch", append=True, inplace=True)
     return full_df
 
 
@@ -126,8 +141,33 @@ def last_epoch_only(full_df):
     Runs are identified by a unique index value; in other words, we group by all index columns (except "Step" and
     "Epoch"), and for each of these groups we take just the final epoch.
     """
+    return _last_level_only(full_df, "Epoch")
+
+
+def last_step_only(full_df, require=None):
+    """Filter the given dataframe down to just the final performance of each run: i.e., its last step number.
+
+    This is the step-indexed counterpart to `last_epoch_only()`, for runs which have no notion of an epoch (such as
+    reinforcement learning runs).
+
+    Args:
+        full_df: Data representing the training trajectories of all runs.
+        require: (Optional) Name of a column which must be non-null. Metrics which are only recorded periodically,
+            such as evaluation results, are missing from most rows; pass the name of such a column to take the last
+            step at which it was actually recorded, rather than the last step overall.
+    """
+    if require is not None:
+        if require not in full_df.columns:
+            raise ValueError(f"Column '{require}' not found in the results. Available columns:"
+                             f" {list(full_df.columns)}")
+        full_df = full_df[full_df[require].notna()]
+    return _last_level_only(full_df, "Step")
+
+
+def _last_level_only(full_df, level):
+    """ Take, for each run, only the rows with the maximum value of the given index level. """
     group_levels = [name for name in full_df.index.names if name not in ("Step", "Epoch")]
     # By setting the series index to the same as the DF index, we make it possible to filter using '=='.
-    epochs = pd.Series(full_df.index.get_level_values("Epoch"), index=full_df.index)
-    max_epochs = epochs.groupby(level=group_levels).transform("max")
-    return full_df.loc[epochs == max_epochs].copy()
+    values = pd.Series(full_df.index.get_level_values(level), index=full_df.index)
+    max_values = values.groupby(level=group_levels).transform("max")
+    return full_df.loc[values == max_values].copy()

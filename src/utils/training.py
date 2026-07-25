@@ -92,16 +92,27 @@ def validate_config(config):
     return config
 
 
+def metrics_to_dataframe(metrics_map, **metadata):
+    """
+    Transforms the output of a training run into a dataframe recording all metrics at every recorded step. Metrics are
+    columns and steps are rows. Kwarg inputs to the function are prepended as metadata to each row.
+
+    Metrics which are only recorded periodically (evaluation results, for instance) will be missing on the rows in
+    between; those cells are left as NaN rather than being filled in.
+    """
+    records = []
+    for step, record in metrics_map.items():
+        records.append({**metadata, "Step": step, **record})
+    return pd.DataFrame.from_records(records)
+
+
 def per_epoch_metrics(metrics_map, **metadata):
     """
     Transforms the output of `train()` into a dataframe recording all metrics at the end of each training epoch.
     Metrics are columns and epochs are rows. Kwarg inputs to the function are prepended as metadata to each row.
     """
     # Reformat: list of records --> DF per step
-    records = []
-    for step, record in metrics_map.items():
-        records.append({**metadata, "Step": step, **record})
-    df = pd.DataFrame.from_records(records)
+    df = metrics_to_dataframe(metrics_map, **metadata)
 
     # We allow for a missing 0th epoch (meaning "checkpoint_initial_model" was false). If missing, prepend a blank row
     # for the 0th step of the 0th epoch.
