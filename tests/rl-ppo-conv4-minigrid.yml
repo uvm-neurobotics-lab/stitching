@@ -1,0 +1,85 @@
+#
+# PPO on BabyAI-GoToRedBallNoDists-v0, using the 7x7x3 symbolic observation and a small ConvNet trained from
+# scratch. This is the reference setup for RL training in this repo.
+#
+# The conv stack reproduces the extractor from the Minigrid docs (three 2x2 convolutions, no padding, no pooling,
+# ReLU) using this repo's own ConvNet, so no new architecture is needed. On a 7x7 input the spatial size shrinks
+# 7 -> 6 -> 5 -> 4, ending at [64, 4, 4]; the FeatureHead's 4x4 pooling is then an identity, which makes its final
+# layer exactly Linear(64*4*4, features_dim) followed by a ReLU.
+#
+# This environment's mission string is always "go to the red ball", so no language input is required.
+#
+# Hyperparameters are RL Zoo's tuned MiniGrid PPO values; see src/rl/hyperparams.py.
+#
+
+trunk:
+  Assembly:
+    parts:
+    - Net:
+        model_name: convnet
+        pretrained: false
+        x_dim: 3                  # Symbolic channels: (OBJECT_IDX, COLOR_IDX, STATE).
+        num_blocks: 3
+        num_filters: [16, 32, 64]
+        num_conv_per_block: 1
+        kernel_size: 2
+        stride: 1
+        padding: 0
+        pool_size: null           # conv_block only adds a MaxPool if this is set.
+        norm_type: null           # Likewise for normalization; the BabyAI reference extractor has none.
+        in_format: img
+        out_format: img
+    head:
+      FeatureHead:
+        pooled_size: [4, 4]
+        activation: relu
+
+policy:
+  features_dim: 64
+  net_arch: {pi: [64, 64], vf: [64, 64]}
+  activation_fn: tanh
+  normalize_images: false       # Symbolic indices are not pixels; do not divide them by 255.
+
+save_checkpoints: true
+eval_checkpoints: true
+device: cpu                     # PPO on a network this small is faster on CPU than on GPU.
+
+train_config:
+  # Environment (this is what replaces `dataset` in a supervised config)
+  benchmark: minigrid
+  env: BabyAI-GoToRedBallNoDists-v0
+  obs_mode: symbolic
+  n_envs: 8
+  vec_env: dummy                # Stepping is cheap here, so worker subprocesses would only add overhead.
+
+  # General Params
+  seed: 12345
+  total_timesteps: 300000
+
+  # Reporting, all counted in environment steps and rounded up to whole rollouts.
+  eval_freq: 10000
+  save_freq: 50000
+
+  # Algorithm
+  algo: PPO
+  algo_args:
+    n_steps: 128                # One rollout is n_envs * n_steps = 1024 environment steps.
+    batch_size: 64
+    n_epochs: 10                # Passes over each rollout, not environment steps.
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.0
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  # Optimization
+  optimizer: Adam
+  optimizer_args:
+    lr: 2.5e-4
+    eps: 1.0e-5
+  lr_schedule: linear
+
+  # Evaluation
+  eval_episodes: 20
+  eval_n_envs: 1

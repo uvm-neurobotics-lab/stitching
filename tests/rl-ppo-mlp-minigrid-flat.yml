@@ -1,0 +1,64 @@
+#
+# PPO on BabyAI-GoToRedBallNoDists-v0 using flattened observations and an MLP.
+#
+# This is the configuration to compare against when asking whether our PPO matches the reference implementation: it
+# is the only setup here whose hyperparameters were actually tuned for its observation space. RL Zoo tuned its
+# MiniGrid values against exactly this combination -- FlatObsWrapper observations, an MLP policy, and observation
+# normalization -- so anything else in this repo inherits those numbers as a starting point rather than as a tuned
+# configuration.
+#
+# FlatObsWrapper concatenates the flattened symbolic view with a one-hot encoding of the mission string, giving a
+# 2835-dimensional vector. The mission is constant for this environment, so those dimensions are constant too.
+#
+# The MLP is the top-level part rather than being wrapped in an Assembly: Assembly does not forward `input_shape`
+# and `num_classes` to its parts, so inside one the MLP's dimensions would have to be written out by hand.
+#
+
+trunk:
+  MLP:
+    in_format: null             # Assembly assumes an image; a flat observation must opt out of that.
+    hidden: [64]
+    activation: tanh
+
+policy:
+  features_dim: 64
+  net_arch: {pi: [64, 64], vf: [64, 64]}
+  activation_fn: tanh
+
+save_checkpoints: true
+eval_checkpoints: true
+device: cpu
+
+train_config:
+  benchmark: minigrid
+  env: BabyAI-GoToRedBallNoDists-v0
+  obs_mode: flat
+  n_envs: 8
+  vec_env: dummy
+  normalize_obs: true           # RL Zoo's `normalize: true`; only meaningful for real-valued observations.
+
+  seed: 12345
+  total_timesteps: 300000
+
+  eval_freq: 10000
+  save_freq: 50000
+
+  algo: PPO
+  algo_args:
+    n_steps: 128
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.0
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  optimizer: Adam
+  optimizer_args:
+    lr: 2.5e-4
+  lr_schedule: linear
+
+  eval_episodes: 20
+  eval_n_envs: 1

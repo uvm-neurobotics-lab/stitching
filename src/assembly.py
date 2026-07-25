@@ -420,7 +420,10 @@ class ClassifierHead(nn.Module):
 
     def forward(self, x):
         x = self.pool(x)
-        x = x.view(x.shape[0], -1)
+        # `reshape`, not `view`: the trunk's output is not necessarily contiguous. An RL observation arrives from
+        # SB3's VecTransposeImage as a channels-last array viewed as [B, C, H, W], the convolutions propagate that
+        # memory format, and pooling to the size the input already has preserves the strides.
+        x = x.reshape(x.shape[0], -1)
         return self.linear(x)
 
 
