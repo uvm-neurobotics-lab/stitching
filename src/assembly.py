@@ -10,6 +10,7 @@ import torch.nn as nn
 
 import adapters
 import utils
+from utils.logging import eval_mode
 from utils.models import load_model, load_subnet
 
 
@@ -565,7 +566,11 @@ class Assembly(nn.Module):
             if not isinstance(head, dict) or len(head) > 1:
                 raise ValueError(f"Unrecognized head config format: {head}."
                                  " Should consist of a single class with args.")
-            trunk_out, trunk_fmt = self.trunk_forward(torch.zeros((3,) + tuple(input_shape)))
+            # Run in eval mode: this dry run exists only to discover the trunk's output shape and format, so it must
+            # not mutate the model. Left in training mode it would push a batch of zeros through any normalization
+            # layers, corrupting the running statistics of a pretrained trunk before training even starts.
+            with eval_mode(self):
+                trunk_out, trunk_fmt = self.trunk_forward(torch.zeros((3,) + tuple(input_shape)))
             head_args = next(iter(head.values()))
             head_kwargs = {"test_input": trunk_out, "trunk_out_fmt": trunk_fmt}
             if num_classes is not None:
@@ -581,7 +586,9 @@ class Assembly(nn.Module):
 
     def train(self, mode: bool = True):
         super().train(mode)
-        restore_frozen(*self.parts, self.head)
+        # `head` is not assigned until after the dry run in `__init__`, which itself switches modes; use getattr so
+        # this is safe to call on a partially constructed Assembly.
+        restore_frozen(*self.parts, getattr(self, "head", None))
         return self
 
     def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False, assign: bool = False):

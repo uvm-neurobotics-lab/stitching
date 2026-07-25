@@ -3,6 +3,7 @@ from copy import deepcopy
 import torch
 
 from assembly import Assembly, unfreeze
+from utils.logging import eval_mode
 
 
 assembly_config = [
@@ -153,6 +154,38 @@ def test_unfreeze_restores_training_mode():
     before = norm.running_mean.clone()
     model(torch.rand(4, *input_shape))
     assert not torch.equal(norm.running_mean, before), "Unfrozen part's running stats should update again."
+
+
+def test_head_construction_does_not_disturb_the_trunk():
+    # Building a head runs a dry-run forward pass to discover the trunk's output shape. In training mode that pushed
+    # a batch of zeros through the trunk's normalization layers, pulling their running statistics 10% toward the
+    # statistics of that all-zero batch. On a freshly initialized BatchNorm the mean happens to survive (it is
+    # already zero), so assert on the variance and the batch count, which move either way -- and note that on a
+    # *pretrained* trunk the mean is damaged too.
+    with_head = Assembly(newcfg(), head={"ClassifierHead": {"num_classes": 10}}, input_shape=[3, 14, 14])
+
+    norm = with_head.parts[0].adapter[0]
+    assert norm.num_batches_tracked.item() == 0, "Dry run was counted as a training batch."
+    assert torch.equal(norm.running_var, torch.ones_like(norm.running_var)), \
+        "Dry run perturbed the trunk's running statistics."
+    assert with_head.training, "Dry run should have restored the model's original training mode."
+
+
+def test_dry_run_guard_protects_nonzero_stats():
+    # The same invariant stated the way it actually bites on a pretrained trunk: statistics that are not already at
+    # their initial values. This exercises the exact guard `Assembly.__init__` wraps its dry run in. Without it, one
+    # pass of zeros pulls a mean of 2.0 down to 1.8 and a variance of 3.0 down to 2.7.
+    input_shape = [3, 14, 14]
+    model = Assembly(newcfg(), input_shape=input_shape)
+    norm = model.parts[0].adapter[0]
+    norm.running_mean.fill_(2.0)
+    norm.running_var.fill_(3.0)
+
+    with eval_mode(model):
+        model.trunk_forward(torch.zeros((3,) + tuple(input_shape)))
+
+    assert torch.equal(norm.running_mean, torch.full_like(norm.running_mean, 2.0))
+    assert torch.equal(norm.running_var, torch.full_like(norm.running_var, 3.0))
 
 
 def test_eval_mode_still_reaches_unfrozen_parts():
