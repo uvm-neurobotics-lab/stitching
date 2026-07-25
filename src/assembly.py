@@ -493,8 +493,35 @@ def model_from_config(config, input_shape=None, num_classes=None):
 
 
 def freeze(part):
+    """
+    Freeze a part: disable gradients for all its parameters, and put it into eval mode.
+
+    The part is also marked with `frozen = True` so its container can keep it in eval mode. This matters because
+    `nn.Module.train()` recurses into all children: without the mark, a frozen part containing normalization layers
+    would resume updating its running statistics every time the containing model is put back into training mode, even
+    though none of its weights can change. See `restore_frozen()`.
+    """
     for param in part.parameters():
         param.requires_grad = False
+    part.frozen = True
+    part.eval()
+
+
+def unfreeze(model):
+    """ Undo `freeze()` throughout `model`: re-enable gradients everywhere and clear the frozen marks. """
+    for param in model.parameters():
+        param.requires_grad = True
+    for module in model.modules():
+        if getattr(module, "frozen", False):
+            module.frozen = False
+    model.train(model.training)  # Re-apply the current mode, now that nothing is held in eval mode.
+
+
+def restore_frozen(*parts):
+    """ Put any frozen parts back into eval mode. Containers should call this after `nn.Module.train()`. """
+    for part in parts:
+        if part is not None and getattr(part, "frozen", False):
+            part.eval()
 
 
 class Assembly(nn.Module):
@@ -551,6 +578,11 @@ class Assembly(nn.Module):
 
         self.in_fmt = get_in_fmt(self.parts[0])
         self.out_fmt = get_out_fmt(self.head) if self.head else get_out_fmt(self.parts[0])
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        restore_frozen(*self.parts, self.head)
+        return self
 
     def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False, assign: bool = False):
         """
@@ -636,6 +668,11 @@ class ParallelPart(nn.Module):
             if part_args is not None and part_args.get("frozen"):
                 freeze(part)
         self.parts = nn.ModuleList(part_list)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        restore_frozen(*self.parts)
+        return self
 
     def forward(self, x, cur_fmt=None):
         if cur_fmt is None:

@@ -20,7 +20,7 @@ import utils.argparsing as argutils
 import utils.datasets as datasets
 import utils.distributed as dist
 import utils.training as training
-from assembly import model_from_config, validate_part, validate_part_list
+from assembly import model_from_config, unfreeze, validate_part, validate_part_list
 from utils.datasets import TaskInfo
 from utils import as_strings, ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
 
@@ -299,8 +299,7 @@ def setup_and_train(parser, config):
     model = model_from_config(config, input_shape, num_classes)
     model.to(device)
     if config.get("unfrozen"):
-        for param in model.parameters():
-            param.requires_grad = True
+        unfreeze(model)
     logging.info(f"Model has {num_params(model):.3e} total and {num_trainable_params(model):.3e} trainable params.")
 
     raw_metrics = training.train(config, model, task_infos, device)
