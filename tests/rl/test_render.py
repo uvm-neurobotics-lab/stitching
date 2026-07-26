@@ -27,13 +27,16 @@ def test_records_a_video_from_a_run_directory(tmp_path):
     assert videos[0].stat().st_size > 0
 
 
-def test_rerendering_replaces_rather_than_accumulates(tmp_path):
-    # The recorder names files after the step budget it was given, so without intervention every run would leave a
-    # differently-named file behind.
+def test_rerendering_does_not_overwrite_earlier_videos(tmp_path):
+    # Recording the same checkpoint again should keep both videos, so a render is never silently lost.
     run_dir = trained_run(tmp_path)
     rl_render.main([str(run_dir), "-n", "1"])
     rl_render.main([str(run_dir), "-n", "1"])
-    assert len(list((run_dir / "video").glob("*.mp4"))) == 1
+    rl_render.main([str(run_dir), "-n", "1"])
+
+    videos = sorted(p.name for p in (run_dir / "video").glob("*.mp4"))
+    assert videos == ["MiniGrid-Empty-5x5-v0-1.mp4", "MiniGrid-Empty-5x5-v0-2.mp4", "MiniGrid-Empty-5x5-v0.mp4"], \
+        "Each render should get its own file, suffixed to avoid a collision."
 
 
 def test_records_a_specific_checkpoint(tmp_path):

@@ -197,8 +197,8 @@ def setup_and_render(parser, args):
     if not recorded_path.is_file():
         logging.warning(f"No video was written to {video_dir}.")
         return 1
-    # The recorder names the file after the step budget it was given, which is a sentinel here. Give it a stable
-    # name instead, so re-rendering replaces the old video rather than piling up next to it.
+    # The recorder names the file after the step budget it was given, which is a sentinel here. Rename it to the
+    # unique name chosen above, so the video is identifiable and no earlier render is overwritten.
     recorded_path.replace(final_path)
     logging.info(f"Wrote {final_path}")
     return 0
