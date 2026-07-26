@@ -112,8 +112,11 @@ configuration, which is the one to compare against when checking the algorithm i
 
 ## Watch a Trained Policy
 
-[`src/rl_render.py`](src/rl_render.py) replays a saved policy and records it to an mp4, reporting how each episode
-went. Point it at a run directory:
+Every training run records a video of its final policy into a `video/` folder next to the results, so you get one
+without asking. Turn it off with `--no-video`, or change its length with `--video-episodes`.
+
+To record one from an existing run, [`src/rl_render.py`](src/rl_render.py) replays a saved policy and reports how
+each episode went. Point it at a run directory:
 
 ```bash
 python src/rl_render.py experiments/poc/go-to-red-ball-nodists -n 8

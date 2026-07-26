@@ -13,15 +13,13 @@ import logging
 import sys
 from pathlib import Path
 
-import numpy as np
 import torch
-from stable_baselines3.common.vec_env import VecVideoRecorder
 
 import rl.algo as algo
 import rl.envs as envs
+import rl.video as video
 import rl_train
 import utils.argparsing as argutils
-from rl.envs import get_benchmark
 from utils import load_yaml
 
 DEFAULT_CHECKPOINT = "checkpoint.pth"
@@ -116,39 +114,6 @@ def prep_config(config, args):
     return rl_train.validate_config(config, print_config=False)
 
 
-def rollout(sb3_model, venv, benchmark, episodes, deterministic=True):
-    """
-    Step the environment until `episodes` episodes have finished.
-
-    Returns:
-        list: One dict per episode, with its return, length, and whether it succeeded.
-    """
-    obs = venv.reset()
-    results = []
-    ep_reward, ep_length = 0.0, 0
-    while len(results) < episodes:
-        action, _ = sb3_model.predict(obs, deterministic=deterministic)
-        obs, rewards, dones, _ = venv.step(action)
-        ep_reward += float(rewards[0])
-        ep_length += 1
-        if dones[0]:
-            results.append({"reward": ep_reward, "length": ep_length,
-                            "success": bool(benchmark.is_success({"r": ep_reward}))})
-            ep_reward, ep_length = 0.0, 0
-    return results
-
-
-def report(results):
-    for i, ep in enumerate(results, start=1):
-        outcome = "solved" if ep["success"] else "FAILED"
-        logging.info(f"  Episode {i}: {outcome} in {ep['length']} steps, return {ep['reward']:.3f}")
-    rewards = [ep["reward"] for ep in results]
-    successes = [ep["success"] for ep in results]
-    lengths = [ep["length"] for ep in results]
-    logging.info(f"Over {len(results)} episodes: success rate {np.mean(successes):.2f}, "
-                 f"mean return {np.mean(rewards):.3f}, mean length {np.mean(lengths):.1f}")
-
-
 def setup_and_render(parser, args):
     run_dir, ckpt_path, raw_config = resolve_run(args, parser)
     config = prep_config(raw_config, args)
@@ -159,49 +124,25 @@ def setup_and_render(parser, args):
     seed = args.seed if args.seed is not None else train_cfg["seed"] + train_cfg["eval_seed_offset"]
     argutils.set_seed(seed)
 
-    video_dir = Path(args.output) if args.output else run_dir / "video"
-    name_prefix = ckpt_path.stem if ckpt_path.stem != "checkpoint" else train_cfg["env"]
-    final_path = video_dir / f"{name_prefix}.mp4"
-    idx = 0
-    while final_path.is_file():
-        idx += 1
-        final_path = video_dir / f"{name_prefix}-{idx}.mp4"
-
-    venv = envs.make_vec_envs(config, n_envs=1, seed=seed, render_mode="rgb_array")
+    # Build the model against a throwaway environment, then let `record_policy` make the one it will record.
+    setup_env = envs.make_vec_envs(config, n_envs=1, seed=seed)
     try:
-        sb3_model = algo.model_from_config(config, venv, device)
-        checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
-        sb3_model.policy.load_state_dict(checkpoint["policy"])
-        sb3_model.policy.set_training_mode(False)
-        logging.info(f"Loaded policy from {ckpt_path}"
-                     + (f" (step {checkpoint['step']})" if "step" in checkpoint else ""))
-
-        # `video_length` is a step budget, and we cannot know one in advance: an episode runs until the agent
-        # solves it or times out, and a BabyAI level does not even fix its own step limit until reset(), when the
-        # limit is derived from the mission it just generated. So give the recorder an effectively unlimited
-        # budget and let the rollout loop decide when to stop; closing the recorder is what writes the file.
-        venv = VecVideoRecorder(venv, str(video_dir), record_video_trigger=lambda step: step == 0,
-                                video_length=10 ** 9, name_prefix=name_prefix)
-        # Read from the environment's metadata at construction, so it has to be overridden afterwards.
-        venv.frames_per_sec = args.fps
-
-        benchmark = get_benchmark(train_cfg["benchmark"])
-        logging.info(f"Recording {args.episodes} episodes of {train_cfg['env']} "
-                     f"({'deterministic' if not args.stochastic else 'stochastic'} policy, seed {seed}).")
-        results = rollout(sb3_model, venv, benchmark, args.episodes, deterministic=not args.stochastic)
-        report(results)
-        recorded_path = Path(venv.video_path)
+        sb3_model = algo.model_from_config(config, setup_env, device)
     finally:
-        venv.close()  # Closing is what flushes the video to disk.
+        setup_env.close()
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
+    sb3_model.policy.load_state_dict(checkpoint["policy"])
+    sb3_model.policy.set_training_mode(False)
+    logging.info(f"Loaded policy from {ckpt_path}"
+                 + (f" (step {checkpoint['step']})" if "step" in checkpoint else ""))
 
-    if not recorded_path.is_file():
-        logging.warning(f"No video was written to {video_dir}.")
-        return 1
-    # The recorder names the file after the step budget it was given, which is a sentinel here. Rename it to the
-    # unique name chosen above, so the video is identifiable and no earlier render is overwritten.
-    recorded_path.replace(final_path)
-    logging.info(f"Wrote {final_path}")
-    return 0
+    written = video.record_policy(
+        sb3_model, config,
+        video_dir=Path(args.output) if args.output else run_dir / "video",
+        episodes=args.episodes, fps=args.fps, deterministic=not args.stochastic, seed=seed,
+        # Name the video after the checkpoint, unless it is the generic rolling one.
+        name_prefix=ckpt_path.stem if ckpt_path.stem != "checkpoint" else train_cfg["env"])
+    return 0 if written else 1
 
 
 def main(argv=None):

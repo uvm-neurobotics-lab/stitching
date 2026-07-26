@@ -21,6 +21,7 @@ import yaml
 import rl.algo as algo
 import rl.envs as envs
 import rl.policies as policies
+import rl.video as video
 import utils.argparsing as argutils
 import utils.distributed as dist
 import utils.training as training
@@ -69,6 +70,11 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                              "directory.")
     parser.add_argument("--metrics-output", "--metrics-dest", metavar="PATH", type=Path,
                         help="Location to save a dataframe of recorded metrics. (default: result.pkl in --output dir)")
+    parser.add_argument("--no-video", dest="record_video", action="store_false",
+                        help="Do not record a video of the final policy. By default one is written to a 'video'"
+                             " folder next to the results.")
+    parser.add_argument("--video-episodes", type=int, metavar="N",
+                        help="Number of episodes to record at the end of training.")
     parser.add_argument("--resume-from", "--resume", metavar="FILE", type=argutils.existing_path,
                         help="Not yet supported for RL; use --load-from.")
     parser.add_argument("--load-from", "--weights", metavar="FILE", type=argutils.existing_path,
@@ -171,7 +177,8 @@ def prep_config(parser, args):
                                                            "eval_checkpoints", "checkpoint_initial_model", "load_from",
                                                            "resume_from", "strict_load", "test_only", "save_dir",
                                                            "metrics_output", "id", "project", "entity", "group",
-                                                           "device", "workers", "deterministic", "verbose"])
+                                                           "device", "workers", "deterministic", "verbose",
+                                                           "record_video"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
@@ -179,7 +186,7 @@ def prep_config(parser, args):
     config["train_config"] = argutils.override_from_command_line(
         config["train_config"], parser, args,
         ["benchmark", "env", "obs_mode", "n_envs", "vec_env", "seed", "total_timesteps", "eval_freq", "save_freq",
-         "eval_episodes"])
+         "eval_episodes", "video_episodes"])
     # Special option to override some algorithm parameters.
     algoconf = config["train_config"].setdefault("algo_args", {})
     config["train_config"]["algo_args"] = argutils.override_from_command_line(
@@ -202,6 +209,7 @@ def prep_config(parser, args):
         train_cfg["n_envs"] = 2
         train_cfg["eval_episodes"] = 2
         train_cfg["eval_n_envs"] = 1
+        train_cfg["video_episodes"] = 1  # Still record, so the smoke test covers that path too.
         train_cfg["algo_args"].update({"n_steps": 8, "batch_size": 16, "n_epochs": 1})
         train_cfg["total_timesteps"] = 3 * 2 * 8  # Three rollouts, mirroring the supervised smoke test's 3 batches.
         train_cfg["eval_freq"] = train_cfg["save_freq"] = train_cfg["record_freq"] = 2 * 8
@@ -239,7 +247,9 @@ def setup_and_train(parser, config):
         if eval_env is not None:
             eval_env.close()
 
+    # Save before recording, so that a problem while rendering cannot cost us the run's results.
     save_results(training.metrics_to_dataframe(raw_metrics), resfile)
+    video.record_after_training(config, sb3_model, resfile)
     return 0
 
 

@@ -39,6 +39,9 @@ def check_algo_config(config):
         raise RuntimeError("Resuming an RL run is not implemented yet: an exact resume also needs the environment "
                            "and rollout buffer state, not just the weights. Use --load-from to start a new run from "
                            "an existing model's weights.")
+    ensure_config_param(config, "record_video", of_type(bool), dflt=True)
+    ensure_config_param(config, ["train_config", "video_episodes"], gt_zero, dflt=5)
+    ensure_config_param(config, ["train_config", "video_fps"], gt_zero, dflt=8)
     ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
     if "save_dir" in config:
         config["save_dir"] = Path(config["save_dir"]).expanduser().resolve()
