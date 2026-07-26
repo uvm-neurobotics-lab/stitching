@@ -5,9 +5,6 @@ Point it at a run directory produced by `rl_train.py` and it will replay the sav
 reporting how each episode went:
     python src/rl_render.py experiments/poc/go-to-red-ball-nodists
 
-The frames come from Gymnasium itself -- MiniGrid draws them, and `render_mode="rgb_array"` hands them over as
-arrays -- and Stable-Baselines3's VecVideoRecorder encodes them, which is the same path RL Baselines3 Zoo uses.
-
 Pass a specific checkpoint to watch an earlier stage of training, which is a good way to see a policy improve:
     python src/rl_render.py experiments/poc/go-to-red-ball-nodists --checkpoint model-20480.pth
 """
@@ -74,18 +71,25 @@ def resolve_run(args, parser):
 
     checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     if "policy" not in checkpoint:
-        parser.error(f"{ckpt_path} has no 'policy' in it, so it does not hold a trained policy. Checkpoints written "
-                     "by stitch_train.py contain only a trunk; use --load-from with rl_train.py instead.")
+        parser.error(f"{ckpt_path} has no 'policy' in it, so it does not hold a trained policy.")
 
-    config_path = Path(args.config) if args.config else run_dir / "config.yml"
-    if config_path.is_file():
-        config = load_yaml(config_path)
+    backup_path = Path(args.config) if args.config else run_dir / "config.yml"
+    if args.config:
+        cfg_path = Path(args.config)
+        if cfg_path.is_file():
+            logging.info(f"Loading config from: {cfg_path}")
+            config = load_yaml(cfg_path)
+        else:
+            parser.error(f"Config not found: {cfg_path}.")
     elif "config" in checkpoint:
         # Every checkpoint carries a copy of the config that produced it, so a run directory is not strictly needed.
-        logging.info(f"No config file found; using the copy stored inside {ckpt_path.name}.")
+        logging.info(f"Loading config from checkpoint: {ckpt_path.name}")
         config = checkpoint["config"]
+    elif backup_path.is_file():
+        logging.info(f"Loading config from: {backup_path}")
+        config = load_yaml(backup_path)
     else:
-        parser.error(f"No config found. Looked for {config_path} and inside {ckpt_path.name}.")
+        parser.error(f"No config found. Looked for {backup_path} and inside {ckpt_path.name}.")
 
     return run_dir, ckpt_path, config
 
@@ -157,6 +161,11 @@ def setup_and_render(parser, args):
 
     video_dir = Path(args.output) if args.output else run_dir / "video"
     name_prefix = ckpt_path.stem if ckpt_path.stem != "checkpoint" else train_cfg["env"]
+    final_path = video_dir / f"{name_prefix}.mp4"
+    idx = 0
+    while final_path.is_file():
+        idx += 1
+        final_path = video_dir / f"{name_prefix}-{idx}.mp4"
 
     venv = envs.make_vec_envs(config, n_envs=1, seed=seed, render_mode="rgb_array")
     try:
@@ -190,7 +199,6 @@ def setup_and_render(parser, args):
         return 1
     # The recorder names the file after the step budget it was given, which is a sentinel here. Give it a stable
     # name instead, so re-rendering replaces the old video rather than piling up next to it.
-    final_path = video_dir / f"{name_prefix}.mp4"
     recorded_path.replace(final_path)
     logging.info(f"Wrote {final_path}")
     return 0
