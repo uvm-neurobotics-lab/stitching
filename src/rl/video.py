@@ -60,7 +60,7 @@ def report(results, per_episode=True):
                  f"mean length {np.mean([e['length'] for e in results]):.1f}")
 
 
-def record_policy(sb3_model, config, video_dir, episodes=5, fps=8, deterministic=True, seed=None, name_prefix=None,
+def record_policy(sb3_model, config, video_dir, episodes=10, fps=6, deterministic=True, seed=None, name_prefix=None,
                   per_episode_report=True):
     """
     Record episodes of the given policy to an mp4.
@@ -129,16 +129,16 @@ def record_after_training(config, sb3_model, result_file):
     Returns:
         Path: The video that was written, or None if recording was disabled or failed.
     """
-    train_cfg = config["train_config"]
     if not config.get("record_video", True):
         return None
 
     video_dir = Path(config.get("save_dir") or Path(result_file).parent) / "video"
+    extra_kwargs = {}
+    for k in ["video_episodes", "video_fps"]:
+        if k in config:
+            extra_kwargs[k[6:]] = config[k]  # "video_[arg]" <-- "[arg]"
     try:
-        return record_policy(sb3_model, config, video_dir,
-                             episodes=train_cfg.get("video_episodes", 5),
-                             fps=train_cfg.get("video_fps", 8),
-                             per_episode_report=False)
+        return record_policy(sb3_model, config, video_dir, **extra_kwargs)
     except Exception as e:
         logging.warning(f"Could not record a video of the final policy ({type(e).__name__}: {e}). Training results "
                         f"are unaffected; use rl_render.py to record one later.")

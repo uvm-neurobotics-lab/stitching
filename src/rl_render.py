@@ -29,16 +29,16 @@ def create_arg_parser(desc, allow_abbrev=True):
     parser = argutils.create_parser(desc, allow_abbrev=allow_abbrev)
     parser.add_argument("run", metavar="RUN", type=argutils.existing_path,
                         help="A run directory produced by rl_train.py, or a checkpoint file directly.")
-    parser.add_argument("--checkpoint", metavar="FILE",
-                        help=f"Which checkpoint within the run directory to load. (default: {DEFAULT_CHECKPOINT})")
+    parser.add_argument("--checkpoint", "--ckp", metavar="FILENAME", default=DEFAULT_CHECKPOINT,
+                        help=f"Which checkpoint within the run directory to load.")
     parser.add_argument("-c", "--config", metavar="FILE", type=argutils.existing_path,
-                        help="Config to rebuild the model from. (default: config.yml in the run directory, else the"
-                             " copy stored inside the checkpoint)")
+                        help="Config to rebuild the model from. (default: copy stored inside the checkpoint, if"
+                             " available; else the config.yml in the run directory)")
     parser.add_argument("-o", "--output", metavar="FOLDER", type=Path,
-                        help="Where to write the video. (default: a 'video' folder inside the run directory)")
-    parser.add_argument("-n", "--episodes", default=5, type=int, metavar="N", help="Number of episodes to record.")
-    parser.add_argument("--fps", default=8, type=int, metavar="N",
-                        help="Frames per second. MiniGrid episodes are short, so a low rate is easier to follow.")
+                        help="Where to write the video. (default: a 'video/' folder inside the run directory)")
+    parser.add_argument("-n", "--episodes", default=10, type=int, metavar="N", help="Number of episodes to record.")
+    parser.add_argument("--fps", default=6, type=int, metavar="N",
+                        help="Frames per second. Lower rates will be easier to follow.")
     parser.add_argument("--stochastic", action="store_true",
                         help="Sample from the policy instead of taking its most likely action. This is how the"
                              " policy behaves while training, rather than how it is evaluated.")
@@ -60,7 +60,7 @@ def resolve_run(args, parser):
     run = Path(args.run)
     if run.is_dir():
         run_dir = run
-        ckpt_path = run_dir / (args.checkpoint or DEFAULT_CHECKPOINT)
+        ckpt_path = run_dir / args.checkpoint
     else:
         run_dir = run.parent
         ckpt_path = run

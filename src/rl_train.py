@@ -73,8 +73,9 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("--no-video", dest="record_video", action="store_false",
                         help="Do not record a video of the final policy. By default one is written to a 'video'"
                              " folder next to the results.")
-    parser.add_argument("--video-episodes", type=int, metavar="N",
+    parser.add_argument("--video-episodes", type=int, metavar="N", default=10,
                         help="Number of episodes to record at the end of training.")
+    parser.add_argument("--video-fps", type=int, metavar="N", default=6, help="Frames per second of recorded video.")
     parser.add_argument("--resume-from", "--resume", metavar="FILE", type=argutils.existing_path,
                         help="Not yet supported for RL; use --load-from.")
     parser.add_argument("--load-from", "--weights", metavar="FILE", type=argutils.existing_path,
@@ -178,15 +179,15 @@ def prep_config(parser, args):
                                                            "resume_from", "strict_load", "test_only", "save_dir",
                                                            "metrics_output", "id", "project", "entity", "group",
                                                            "device", "workers", "deterministic", "verbose",
-                                                           "record_video"])
+                                                           "record_video", "video_episodes", "video_fps"])
     if not config.get("train_config"):
         # Exits the program with a usage error.
         parser.error(f'The given config does not have a "train_config" sub-config: {args.config}')
     # This list governs which _training_ args can be overridden from the command line.
-    config["train_config"] = argutils.override_from_command_line(
-        config["train_config"], parser, args,
-        ["benchmark", "env", "obs_mode", "n_envs", "vec_env", "seed", "total_timesteps", "eval_freq", "save_freq",
-         "eval_episodes", "video_episodes"])
+    config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
+                                                                 ["benchmark", "env", "obs_mode", "n_envs", "vec_env",
+                                                                  "seed", "total_timesteps", "eval_freq", "save_freq",
+                                                                  "eval_episodes"])
     # Special option to override some algorithm parameters.
     algoconf = config["train_config"].setdefault("algo_args", {})
     config["train_config"]["algo_args"] = argutils.override_from_command_line(
