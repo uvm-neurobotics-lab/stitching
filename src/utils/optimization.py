@@ -48,7 +48,7 @@ def scheduler_from_config(config, opt):
     """
     sched_name = config.get("lr_scheduler")
     if not sched_name or sched_name == "DummyScheduler":
-        return DummyScheduler(opt)
+        return DummyScheduler(opt), "epochs"
     sched_args = config.get("lr_scheduler_args", {})
     cls = getattr(torch.optim.lr_scheduler, sched_name)
     sched_args = sched_args.copy()
