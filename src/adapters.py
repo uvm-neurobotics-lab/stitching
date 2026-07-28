@@ -289,7 +289,8 @@ class SimpleAdapter(nn.Module):
     An adapter which can form either a simple layer or slightly more complex blocks.
     """
     def __init__(self, in_channels, out_channels, hid_channels=None, num_fc=0, num_conv=0, kernel_size=3, stride=1,
-                 padding=1, leading_norm=True, nonlinearity=True, init_identity=False, fc_format=None, in_format=None):
+                 padding=1, leading_norm=True, post_norm=True, nonlinearity=True, init_identity=False, fc_format=None,
+                 in_format=None):
         super().__init__()
         if num_fc < 0 or num_conv < 0:
             raise ValueError("num_fc and num_conv must be non-negative.")
@@ -313,7 +314,8 @@ class SimpleAdapter(nn.Module):
                 if i == (num_fc - 1):
                     ochans = out_channels
                 layers.append(nn.Linear(ichans, ochans))
-                layers.append(nn.LayerNorm(ochans))
+                if post_norm:
+                    layers.append(nn.LayerNorm(ochans))
                 # TODO: Inherited this particular type of ReLU from DeRy. No reason to necessarily prefer it.
                 if nonlinearity:
                     layers.append(nn.LeakyReLU(0.1, inplace=True))
@@ -336,7 +338,8 @@ class SimpleAdapter(nn.Module):
                 if i == (num_fc - 1):
                     ochans = out_channels
                 layers.append(nn.Conv2d(ichans, ochans, kernel_size=kernel_size, stride=cur_stride, padding=padding))
-                layers.append(nn.BatchNorm2d(ochans))
+                if post_norm:
+                    layers.append(nn.BatchNorm2d(ochans))
                 if nonlinearity:
                     layers.append(nn.LeakyReLU(0.1, inplace=True))
                 if i == 0:
