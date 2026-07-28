@@ -68,8 +68,8 @@ def resolve_run(args, parser):
         parser.error(f"Checkpoint not found: {ckpt_path}")
 
     checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    if "policy" not in checkpoint:
-        parser.error(f"{ckpt_path} has no 'policy' in it, so it does not hold a trained policy.")
+    if "model" not in checkpoint:
+        parser.error(f"{ckpt_path} has no 'model' in it, so it does not hold a trained policy.")
 
     backup_path = Path(args.config) if args.config else run_dir / "config.yml"
     if args.config:
@@ -131,7 +131,7 @@ def setup_and_render(parser, args):
     finally:
         setup_env.close()
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
-    sb3_model.policy.load_state_dict(checkpoint["policy"])
+    sb3_model.policy.load_state_dict(checkpoint["model"])
     sb3_model.policy.set_training_mode(False)
     logging.info(f"Loaded policy from {ckpt_path}"
                  + (f" (step {checkpoint['step']})" if "step" in checkpoint else ""))

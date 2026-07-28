@@ -68,18 +68,16 @@ def test_results_load_through_the_postprocessing_helpers(tmp_path):
     assert final.index.get_level_values("Step").tolist() == [48]
 
 
-def test_checkpoint_trunk_is_loadable_by_a_supervised_config(tmp_path):
-    # `model` must hold the trunk on its own, in the layout utils/models.load_model() expects from a ckp_path.
+def test_checkpoint_holds_the_whole_policy(tmp_path):
+    # One entry, not two: "model" is the entire SB3 policy, so there is no second copy of the weights to keep in
+    # sync with it.
     checkpoint = torch.load(run(tmp_path) / "checkpoint.pth", map_location="cpu", weights_only=True)
-    assert set(checkpoint) >= {"model", "policy", "optimizer", "step", "config"}
+    assert set(checkpoint) == {"model", "optimizer", "step", "config"}
 
-    trunk_keys = list(checkpoint["model"])
-    assert all(not k.startswith("features_extractor.") for k in trunk_keys), \
-        "The trunk state dict must not carry SB3's policy prefixes."
-    assert any(k.startswith("parts.0.net.") for k in trunk_keys), \
-        "Expected the Assembly layout that load_model() knows how to strip."
-    assert any(k.startswith("features_extractor.") for k in checkpoint["policy"]), \
-        "The policy state dict should be the whole SB3 policy, heads included."
+    keys = list(checkpoint["model"])
+    assert any(k.startswith("features_extractor.") for k in keys), "The trunk should be in there..."
+    assert any(k.startswith("action_net.") for k in keys), "...along with the actor..."
+    assert any(k.startswith("value_net.") for k in keys), "...and the critic."
 
 
 def test_load_from_a_previous_run(tmp_path):

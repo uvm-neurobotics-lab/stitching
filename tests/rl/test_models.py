@@ -135,31 +135,64 @@ def test_policy_heads_keep_their_own_initialization():
         train_env.close()
 
 
-def test_load_from_accepts_a_supervised_checkpoint(tmp_path):
-    # A trunk trained by stitch_train.py must be loadable here; that interoperability is the point of the repo.
-    from rl.models import load_trunk_weights
+def test_load_from_restores_the_whole_policy(tmp_path):
+    # --load-from must bring back the actor and critic too, not just the trunk; otherwise a "loaded" policy would
+    # act through freshly initialized heads and behave nothing like the one that was saved.
+    from rl.models import load_policy_weights
 
     config = validated()
     train_env = make_vec_envs(config)
     try:
         donor = build_model(config, train_env, "cpu")
-        donor_trunk = donor.policy.features_extractor.model
-        with torch.no_grad():  # Make the donor's weights distinctive.
-            for param in donor_trunk.parameters():
+        with torch.no_grad():  # Make every weight in the donor distinctive.
+            for param in donor.policy.parameters():
                 param.fill_(0.5)
-        # Exactly the layout utils/logging.py writes for a supervised run.
         ckpt_path = tmp_path / "checkpoint.pth"
-        torch.save({"model": donor_trunk.state_dict(), "epoch": 1}, ckpt_path)
+        torch.save({"model": donor.policy.state_dict(), "step": 42}, ckpt_path)
 
         receiver = build_model(config, train_env, "cpu")
-        load_trunk_weights(receiver, ckpt_path, strict=True)
-        for param in receiver.policy.features_extractor.model.parameters():
-            assert torch.allclose(param, torch.full_like(param, 0.5))
+        load_policy_weights(receiver, ckpt_path, strict=True)
 
-        # A later restore must keep the loaded weights, not revert to the constructed ones.
-        restore_pretrained_weights(receiver)
-        for param in receiver.policy.features_extractor.model.parameters():
-            assert torch.allclose(param, torch.full_like(param, 0.5))
+        for name, param in receiver.policy.named_parameters():
+            assert torch.allclose(param, torch.full_like(param, 0.5)), f"{name} was not loaded."
+        # Spot-check that this really covered the heads and not only the extractor.
+        loaded = dict(receiver.policy.named_parameters())
+        assert any(n.startswith("action_net") for n in loaded)
+        assert any(n.startswith("value_net") for n in loaded)
+        assert any(n.startswith("features_extractor") for n in loaded)
+    finally:
+        train_env.close()
+
+
+def test_load_from_rejects_a_supervised_checkpoint(tmp_path):
+    # A stitch_train.py checkpoint holds a bare Assembly with no heads. Say so, rather than partially loading it.
+    from rl.models import load_policy_weights
+
+    config = validated()
+    train_env = make_vec_envs(config)
+    try:
+        sb3_model = build_model(config, train_env, "cpu")
+        trunk_only = sb3_model.policy.features_extractor.model.state_dict()
+        ckpt_path = tmp_path / "supervised.pth"
+        torch.save({"model": trunk_only, "epoch": 1}, ckpt_path)
+
+        with pytest.raises(RuntimeError, match="holds only a trunk"):
+            load_policy_weights(sb3_model, ckpt_path, strict=True)
+    finally:
+        train_env.close()
+
+
+def test_load_from_rejects_a_file_that_is_not_a_checkpoint(tmp_path):
+    from rl.models import load_policy_weights
+
+    config = validated()
+    train_env = make_vec_envs(config)
+    try:
+        sb3_model = build_model(config, train_env, "cpu")
+        ckpt_path = tmp_path / "junk.pth"
+        torch.save({"optimizer": {}, "step": 1}, ckpt_path)  # No "model" key at all.
+        with pytest.raises(RuntimeError, match="does not look like a checkpoint"):
+            load_policy_weights(sb3_model, ckpt_path)
     finally:
         train_env.close()
 

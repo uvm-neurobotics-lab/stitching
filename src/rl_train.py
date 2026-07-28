@@ -79,8 +79,9 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("--resume-from", "--resume", metavar="FILE", type=argutils.existing_path,
                         help="Not yet supported for RL; use --load-from.")
     parser.add_argument("--load-from", "--weights", metavar="FILE", type=argutils.existing_path,
-                        help="Path of a checkpoint to load trunk weights from. This accepts checkpoints written by "
-                             "stitch_train.py, which is how a model trained on images can be trained further here.")
+                        help="Path of a checkpoint to load the whole policy from -- trunk, actor, and critic. Must "
+                             "be a checkpoint written by rl_train.py; training resumes from those weights but at "
+                             "step zero.")
     parser.add_argument("--non-strict", dest="strict_load", action="store_false",
                         help="Use non-strict matching of weights when loading the checkpoint.")
     parser.add_argument("--unfrozen", action="store_true", help="Train all parameters. Overrides config.")

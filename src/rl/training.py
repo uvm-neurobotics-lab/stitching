@@ -156,17 +156,19 @@ def model_from_config(config, train_env, device):
 
 def build_model(config, train_env, device):
     """ Construct the algorithm and put its weights into the state training should start from. """
-    from rl.models import apply_freezing, load_trunk_weights
+    from rl.models import apply_freezing, load_policy_weights
 
     sb3_model = model_from_config(config, train_env, device)
 
-    # Must happen after construction: building the policy re-initializes the features extractor.
-    restored = restore_pretrained_weights(sb3_model)
-    if restored:
-        logging.debug(f"Restored the constructed weights of {restored} features extractor(s) after SB3's "
-                      "initialization.")
     if config.get("load_from"):
-        load_trunk_weights(sb3_model, config["load_from"], strict=config.get("strict_load", True))
+        # Replaces everything SB3 just initialized, so there is nothing to restore.
+        load_policy_weights(sb3_model, config["load_from"], strict=config.get("strict_load", True))
+    else:
+        # Must happen after construction: building the policy re-initializes the features extractor.
+        restored = restore_pretrained_weights(sb3_model)
+        if restored:
+            logging.debug(f"Restored the constructed weights of {restored} features extractor(s) after SB3's "
+                          "initialization.")
     apply_freezing(sb3_model, config)
 
     logging.info(describe_parameters(sb3_model))

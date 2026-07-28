@@ -99,15 +99,11 @@ class RLLog(BaseLog):
         """
         Assemble the checkpoint.
 
-        "model" holds the trunk on its own, in the same layout `stitch_train.py` writes, so a trunk trained here can
-        be loaded by a supervised config's `ckp_path` and vice versa. "policy" holds the whole SB3 policy, including
-        the actor and critic heads, which is what an exact resume needs.
+        "model" is the whole SB3 policy: trunk, actor, and critic together. Note that this is not the same layout
+        `stitch_train.py` writes, whose "model" is a bare Assembly, so the two are not interchangeable.
         """
-        from rl.models import trunk_state_dict
-
         return {
-            "model": trunk_state_dict(sb3_model),
-            "policy": sb3_model.policy.state_dict(),
+            "model": sb3_model.policy.state_dict(),
             "optimizer": sb3_model.policy.optimizer.state_dict(),
             "step": it,
             "config": make_pretty(config),

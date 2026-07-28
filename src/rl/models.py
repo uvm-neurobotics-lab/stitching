@@ -94,9 +94,9 @@ class AssemblyExtractor(BaseFeaturesExtractor):
         self.model.load_state_dict(self._weight_snapshot)
         self._apply_norm_freeze()
 
-    def snapshot_weights(self):
-        """ Take the current weights as the ones `restore_pretrained()` should restore. """
-        self._weight_snapshot = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
+    def apply_norm_freeze(self):
+        """ Re-assert the frozen normalization layers, after anything which may have replaced the weights. """
+        self._apply_norm_freeze()
 
 
 def iter_extractors(sb3_model):
@@ -132,37 +132,39 @@ def restore_pretrained_weights(sb3_model):
     return count
 
 
-def load_trunk_weights(sb3_model, ckp_path, strict=True):
+def load_policy_weights(sb3_model, ckp_path, strict=True):
     """
-    Load trunk weights from a checkpoint, for `--load-from`.
+    Load a whole policy -- trunk, actor, and critic -- from a checkpoint, for `--load-from`.
 
-    Accepts either a bare state dict or a checkpoint dict with a "model" key, which is the format both the supervised
-    trainer and this one write. That is what allows a trunk trained by `stitch_train.py` to be picked up here.
+    The checkpoint must be one written by `rl_train.py`; a checkpoint from `stitch_train.py` holds only a trunk and
+    has no heads to load, so it is rejected rather than silently loaded into part of the policy.
     """
     checkpoint = torch.load(ckp_path, map_location="cpu", weights_only=True)
-    state_dict = checkpoint.get("model", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+    if not isinstance(checkpoint, dict) or "model" not in checkpoint:
+        raise RuntimeError(f"{ckp_path} does not look like a checkpoint written by rl_train.py: expected a dict with "
+                           "a 'model' key holding the policy weights.")
 
-    count = 0
+    state_dict = checkpoint["model"]
+    # Catch the two ways a state dict can hold a bare trunk instead of a policy: a checkpoint from stitch_train.py,
+    # or one this script wrote before "model" meant the whole policy. Either way the actor and critic are simply
+    # absent, and torch's own error for that is several hundred key names long.
+    if not any(k.startswith(EXTRACTOR_ATTRS + ("action_net.", "value_net.", "mlp_extractor.")) for k in state_dict):
+        raise RuntimeError(f"{ckp_path} holds only a trunk, not a whole policy -- it has no actor or critic weights. "
+                           "It is either from stitch_train.py or from an older version of rl_train.py. Loading a "
+                           "trunk on its own is not supported.")
+
+    missing, unexpected = sb3_model.policy.load_state_dict(state_dict, strict=strict)
+    if missing:
+        logging.warning(f"Missing keys when loading policy weights: {missing}")
+    if unexpected:
+        logging.warning(f"Unexpected keys when loading policy weights: {unexpected}")
+
+    # Loading replaces the weights wholesale, so re-assert anything we hold outside the state dict.
     for extractor in iter_extractors(sb3_model):
-        missing, unexpected = extractor.model.load_state_dict(state_dict, strict=strict)
-        if missing:
-            logging.warning(f"Missing keys when loading trunk weights: {missing}")
-        if unexpected:
-            logging.warning(f"Unexpected keys when loading trunk weights: {unexpected}")
-        # These are now the weights to keep, so a later restore must not revert to the constructed ones.
-        extractor.snapshot_weights()
-        count += 1
-    if not count:
-        raise RuntimeError(f"Could not load weights from {ckp_path}: the policy has no AssemblyExtractor.")
-    logging.info(f"Loaded trunk weights from: {ckp_path}")
-    return count
+        extractor.apply_norm_freeze()
 
-
-def trunk_state_dict(sb3_model):
-    """ The trunk's state dict, in the same layout `stitch_train.py` writes, so checkpoints interoperate. """
-    for extractor in iter_extractors(sb3_model):
-        return extractor.model.state_dict()
-    return {}
+    step = f" (step {checkpoint['step']})" if "step" in checkpoint else ""
+    logging.info(f"Loaded policy weights from: {ckp_path}{step}")
 
 
 def apply_freezing(sb3_model, config):
