@@ -15,7 +15,7 @@ from pathlib import Path
 
 import torch
 
-import rl.algo as algo
+import rl.training as algo
 import rl.envs as envs
 import rl.video as video
 import rl_train

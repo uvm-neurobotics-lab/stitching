@@ -245,7 +245,7 @@ def train(config, model, task_infos, device):
 
     # Load model checkpoint if requested.
     if config.get("resume_from"):
-        logging.info(f"Resuming checkpoint at {config['resume_from']}.")
+        logging.info(f"Resuming from checkpoint at {config['resume_from']}.")
         checkpoint = torch.load(config["resume_from"], map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"], config.get("strict_load", True))
         if not config.get("test_only"):
@@ -253,7 +253,7 @@ def train(config, model, task_infos, device):
             scheduler.load_state_dict(checkpoint["scheduler"])
         config["start_epoch"] = checkpoint["epoch"] + 1
     elif config.get("load_from"):
-        logging.info(f"Resuming checkpoint at {config['load_from']}.")
+        logging.info(f"Loading checkpoint at {config['load_from']}.")
         checkpoint = torch.load(config["load_from"], map_location="cpu", weights_only=True)
         model_without_ddp.load_state_dict(checkpoint["model"], config.get("strict_load", True))
 

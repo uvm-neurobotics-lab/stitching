@@ -13,7 +13,7 @@ import stable_baselines3
 import torch
 
 from rl import hyperparams
-from rl.callbacks import RLCallback, RLLog
+from rl.logging import RLCallback, RLLog
 from rl.envs import get_benchmark
 from rl.models import describe_parameters, restore_pretrained_weights
 from rl.policies import policy_kwargs_from_config, policy_name_for

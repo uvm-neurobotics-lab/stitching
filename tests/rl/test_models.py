@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 
-from rl.algo import build_model, model_from_config
+from rl.training import build_model, model_from_config
 from rl.envs import make_vec_envs
 from rl.models import AssemblyExtractor, restore_pretrained_weights
 from tests.rl.configs import CONV_TRUNK, smoke_config, validated

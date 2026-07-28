@@ -1,12 +1,9 @@
 """
-Turning the `policy` sub-config into Stable-Baselines3 `policy_kwargs`.
+Turns a `policy` config into Stable-Baselines3 `policy_kwargs`.
 
 The model config is split in two. `trunk` is the feature extractor this repo owns, stitches, and pretrains; it is
 parsed by `assembly.model_from_config()` exactly as in supervised training. `policy` is the actor-critic head SB3
 builds on top of the resulting feature vector, and is described by plain scalars rather than by parts.
-
-They are siblings rather than nested because `assembly.validate_part()` requires the trunk config to be a single
-class name mapped to its arguments, so there is nowhere inside it to put anything else.
 """
 import torch
 import torch.nn as nn

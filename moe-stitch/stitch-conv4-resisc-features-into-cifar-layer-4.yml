@@ -43,9 +43,10 @@ model:
                 out_channels: 64
                 num_conv: 1
                 kernel_size: 1
-                padding: 0
+    # ADAPTER COMBINES CONCATTED CIFAR+RESISC FEATURES
     - SimpleAdapter:
         frozen: false
+        init_identity: true
         in_channels: 128
         out_channels: 64
         num_conv: 1

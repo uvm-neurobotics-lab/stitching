@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-import rl.algo as algo
+import rl.training as algo
 import rl.envs as envs
 import rl.policies as policies
 import rl.video as video

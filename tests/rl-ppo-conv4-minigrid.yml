@@ -3,9 +3,9 @@
 # scratch. This is the reference setup for RL training in this repo.
 #
 # The conv stack reproduces the extractor from the Minigrid docs (three 2x2 convolutions, no padding, no pooling,
-# ReLU) using this repo's own ConvNet, so no new architecture is needed. On a 7x7 input the spatial size shrinks
-# 7 -> 6 -> 5 -> 4, ending at [64, 4, 4]; the FeatureHead's 4x4 pooling is then an identity, which makes its final
-# layer exactly Linear(64*4*4, features_dim) followed by a ReLU.
+# ReLU) using this repo's own ConvNet. On a 7x7 input the spatial size shrinks 7 -> 6 -> 5 -> 4, ending at [64, 4, 4];
+# the FeatureHead's 4x4 pooling is then an identity, which makes its final layer exactly Linear(64*4*4, features_dim)
+# followed by a ReLU.
 #
 # This environment's mission string is always "go to the red ball", so no language input is required.
 #
@@ -31,7 +31,7 @@ trunk:
         out_format: img
     head:
       FeatureHead:
-        pooled_size: [4, 4]
+        pooled_size: [4, 4]       # NOTE: We are not actually doing any pooling here, it's already this size.
         activation: relu
 
 policy:
