@@ -4,7 +4,7 @@ Tests for the individual model parts which are addressable from a config: see `a
 import pytest
 import torch
 
-from assembly import MLP, FeatureHead, part_class_from_name, part_from_config
+from assembly import MLP, VectorHead, part_class_from_name, part_from_config
 
 
 # The reference feature extractor for MiniGrid observations (three 2x2 convs, no padding, no pooling), expressed
@@ -14,14 +14,14 @@ MINIGRID_TRUNK = {
         "parts": [{"Net": {"model_name": "convnet", "pretrained": False, "x_dim": 3, "num_blocks": 3,
                            "num_filters": [16, 32, 64], "kernel_size": 2, "stride": 1, "padding": 0,
                            "pool_size": None, "norm_type": None, "in_format": "img", "out_format": "img"}}],
-        "head": {"FeatureHead": {"pooled_size": [4, 4], "activation": "relu"}},
+        "head": {"VectorHead": {"pooled_size": [4, 4], "activation": "relu"}},
     }
 }
 
 
 def test_new_parts_are_addressable_by_name():
     # Parts are looked up by name from a config, so they must be resolvable without being registered anywhere.
-    assert part_class_from_name("FeatureHead") is FeatureHead
+    assert part_class_from_name("VectorHead") is VectorHead
     assert part_class_from_name("MLP") is MLP
 
 
@@ -33,34 +33,25 @@ def test_convnet_reproduces_the_reference_minigrid_extractor():
     assert model.parts[0](torch.zeros(2, 3, 7, 7)).shape == (2, 64, 4, 4)
 
 
-def test_feature_head_applies_trailing_activation():
+def test_vector_head_applies_trailing_activation():
     model = part_from_config(MINIGRID_TRUNK, input_shape=(3, 7, 7), num_classes=64)
     # Use a non-zero input, since an all-zero input would give non-negative features regardless.
     features = model(torch.randn(4, 3, 7, 7))
-    assert (features >= 0).all(), "A relu-activated FeatureHead should never emit negative features."
+    assert (features >= 0).all(), "A relu-activated VectorHead should never emit negative features."
 
 
-def test_feature_head_without_activation_is_unbounded():
+def test_vector_head_without_activation_is_unbounded():
     cfg = {"Assembly": {"parts": MINIGRID_TRUNK["Assembly"]["parts"],
-                        "head": {"FeatureHead": {"pooled_size": [4, 4]}}}}
+                        "head": {"VectorHead": {"pooled_size": [4, 4]}}}}
     model = part_from_config(cfg, input_shape=(3, 7, 7), num_classes=64)
     assert (model(torch.randn(64, 3, 7, 7)) < 0).any(), "Without an activation, features should not be clamped."
 
 
-def test_feature_head_accepts_features_dim_as_a_synonym():
-    head = FeatureHead(features_dim=12, in_format=["img", [8, 4, 4]])
+def test_vector_head_accepts_num_classes():
+    head = VectorHead(num_classes=12, in_format=["img", [8, 4, 4]])
     assert head(torch.zeros(2, 8, 4, 4)).shape == (2, 12)
-
-
-def test_feature_head_prefers_num_classes_over_features_dim():
-    # The containing Assembly passes num_classes; that must win over a value baked into the config.
-    head = FeatureHead(features_dim=12, num_classes=5, in_format=["img", [8, 4, 4]])
+    head = VectorHead(num_classes=5, in_format=["img", [8, 4, 4]])
     assert head(torch.zeros(2, 8, 4, 4)).shape == (2, 5)
-
-
-def test_feature_head_requires_a_width():
-    with pytest.raises(RuntimeError, match="features_dim"):
-        FeatureHead(in_format=["img", [8, 4, 4]])
 
 
 def test_mlp_as_top_level_part():

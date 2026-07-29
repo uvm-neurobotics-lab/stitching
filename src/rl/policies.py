@@ -87,7 +87,7 @@ def validate_trunk_part(config):
                 f"The top-level model must accept '{arg}', because the observation shape and the feature width are "
                 f"only known at runtime, but '{cls_name}' does not. Wrap it in an Assembly:\n"
                 f"    {key}:\n      Assembly:\n        parts:\n        - {cls_name}: {{...}}\n"
-                f"        head:\n          FeatureHead: {{}}")
+                f"        head:\n          VectorHead: {{}}")
 
 
 def default_normalize_images(obs_mode):

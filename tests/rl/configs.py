@@ -31,7 +31,7 @@ CONV_TRUNK = {
         "parts": [{"Net": {"model_name": "convnet", "pretrained": False, "x_dim": 3, "num_blocks": 3,
                            "num_filters": [16, 32, 64], "kernel_size": 2, "stride": 1, "padding": 0,
                            "pool_size": None, "norm_type": None, "in_format": "img", "out_format": "img"}}],
-        "head": {"FeatureHead": {"pooled_size": [4, 4], "activation": "relu"}},
+        "head": {"VectorHead": {"pooled_size": [4, 4], "activation": "relu"}},
     }
 }
 

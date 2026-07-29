@@ -478,6 +478,30 @@ def load_retccl(pretrained=True, ckp_path=None):
     return model
 
 
+def load_checkpoint(model: torch.nn.Module, ckp_path: str | Path, verbose: bool = False, subnet_prefix: str = None):
+    # Load custom weights.
+    if ckp_path is not None:
+        if os.path.isfile(ckp_path):
+            if verbose:
+                logging.info(f"Loading checkpoint from: {ckp_path}")
+            state_dict = torch.load(ckp_path, map_location="cpu", weights_only=True)
+            if "model" in state_dict:
+                state_dict = state_dict["model"]
+            # Special case: if we find this prefix on any of the keys, then our target checkpoint is actually a subnet
+            # of a larger network. For example, a Net nested inside an Assembly. So, edit the keys to drop this prefix.
+            if subnet_prefix and any(k.startswith(subnet_prefix) for k in state_dict):
+                state_dict = {k[len(subnet_prefix):]: v for k, v in state_dict.items()
+                              if k.startswith(subnet_prefix)}
+            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+            if verbose:
+                if missing_keys:
+                    logging.warning(f"Missing keys: {missing_keys}")
+                if unexpected_keys:
+                    logging.warning(f"Unexpected keys: {unexpected_keys}")
+        else:
+            raise FileNotFoundError(f"Checkpoint path does not exist: {ckp_path}")
+
+
 def load_model(model_name, backend=None, pretrained=None, ckp_path=None, verbose=False, **kwargs):
     # Fetch the model architecture and (optionally) weights.
     if pretrained is None and backend is not None:
@@ -501,28 +525,7 @@ def load_model(model_name, backend=None, pretrained=None, ckp_path=None, verbose
     else:
         raise ValueError(f"Unrecognized backend: '{backend}'")
 
-    # Load custom weights.
-    if ckp_path is not None:
-        if os.path.isfile(ckp_path):
-            if verbose:
-                logging.info(f"Loading checkpoint from: {ckp_path}")
-            state_dict = torch.load(ckp_path, map_location="cpu", weights_only=True)
-            if "model" in state_dict:
-                state_dict = state_dict["model"]
-            # Special case: if we find this prefix on any of the keys, assume that this is a Net nested inside an
-            # Assembly, and we actually just want to pull out the inner Net. So, edit the keys to drop this prefix.
-            assembly_prefix = "parts.0.net."
-            if any(k.startswith(assembly_prefix) for k in state_dict):
-                state_dict = {k[len(assembly_prefix):]: v for k, v in state_dict.items()
-                              if k.startswith(assembly_prefix)}
-            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-            if verbose:
-                if missing_keys:
-                    logging.warning(f"Missing keys: {missing_keys}")
-                if unexpected_keys:
-                    logging.warning(f"Unexpected keys: {unexpected_keys}")
-        else:
-            raise FileNotFoundError(f"Checkpoint path does not exist: {ckp_path}")
+    load_checkpoint(model, ckp_path, verbose, "parts.0.net.")
 
     return model
 

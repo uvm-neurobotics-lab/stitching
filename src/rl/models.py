@@ -44,7 +44,7 @@ class AssemblyExtractor(BaseFeaturesExtractor):
         if features_dim is not None and out_dim != features_dim:
             raise RuntimeError(f"The configured trunk produces {out_dim} features, but policy.features_dim is "
                                f"{features_dim}. Either set policy.features_dim to {out_dim}, or give the trunk a "
-                               "head whose width follows num_classes (FeatureHead does).")
+                               "head which takes a num_classes argument (VectorHead does).")
         self._features_dim = out_dim
 
         self.freeze_norm_stats = freeze_norm_stats
@@ -60,7 +60,7 @@ class AssemblyExtractor(BaseFeaturesExtractor):
             out = self.model(torch.zeros((2,) + input_shape))
         if out.ndim != 2:
             raise RuntimeError(f"The trunk must produce a flat feature vector of shape [batch, features], but it "
-                               f"produced {tuple(out.shape)}. Add a head which flattens its output; FeatureHead "
+                               f"produced {tuple(out.shape)}. Add a head which flattens its output; VectorHead "
                                "does this.")
         return out.shape[1]
 

@@ -12,7 +12,7 @@ import torch.nn as nn
 import adapters
 import utils
 from utils.logging import eval_mode
-from utils.models import load_model, load_subnet
+from utils.models import load_checkpoint, load_model, load_subnet
 
 
 def img2bhwc(x, **kwargs):
@@ -177,6 +177,9 @@ def parse_format_from_tensor(x, cur_fmt):
     elif cur_fmt == "token":
         cur_ch = x.shape[2]
         cur_sz = x.shape[1]
+    elif cur_fmt == "vector":
+        cur_ch = x.shape[1]
+        cur_sz = 1
     else:
         raise RuntimeError(f"Unrecognized format type: '{cur_fmt}'")
 
@@ -200,7 +203,7 @@ def get_height_and_width(x, cur_fmt):
 def channel_dim_for_format(fmt):
     if not isinstance(fmt, str):
         fmt, _ = fmt
-    if fmt == "img":
+    if fmt == "img" or fmt == "vector":
         return 1
     elif fmt == "bhwc":
         return 3
@@ -388,45 +391,6 @@ class BaseBlock(nn.Module):
         return x
 
 
-class ClassifierHead(nn.Module):
-
-    def __init__(self, num_classes, in_format=None, test_input=None, trunk_out_fmt=None, pooled_size=(1, 1)):
-        super().__init__()
-        if num_classes is None:
-            raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
-        if in_format is None and test_input is None:
-            raise RuntimeError(f"{type(self).__name__} requires either `in_format` or `test_input` to be able to "
-                               "derive input shape.")
-        if not (isinstance(pooled_size, int) or (isinstance(pooled_size, Sequence) and len(pooled_size) == 2)):
-            raise RuntimeError(f"pooled_size must be an int or a tuple of length 2, but instead got: {pooled_size}.")
-        if test_input is not None:
-            if trunk_out_fmt:
-                test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
-            input_shape = test_input.shape[1:]  # drop batch dimension
-        else:
-            fmt, ch, sz = parse_format(in_format)
-            if not isinstance(sz, Sequence) or len(sz) != 2:
-                raise RuntimeError(f"Input to {type(self).__name__} must be in image format, but got {in_format}.")
-            input_shape = [ch, *sz]
-        if len(input_shape) != 3:
-            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape} "
-                               f"(format = {in_format}, trunk output format = {trunk_out_fmt}).")
-        self.pool = nn.AdaptiveAvgPool2d(pooled_size)
-        final_length = pooled_size**2 if isinstance(pooled_size, int) else (pooled_size[0] * pooled_size[1])
-        final_length *= input_shape[0]
-        self.linear = nn.Linear(final_length, num_classes)
-        self.in_fmt = in_format or "img"
-        self.out_fmt = "vector"
-
-    def forward(self, x):
-        x = self.pool(x)
-        # `reshape`, not `view`: the trunk's output is not necessarily contiguous. An RL observation arrives from
-        # SB3's VecTransposeImage as a channels-last array viewed as [B, C, H, W], the convolutions propagate that
-        # memory format, and pooling to the size the input already has preserves the strides.
-        x = x.reshape(x.shape[0], -1)
-        return self.linear(x)
-
-
 ACTIVATIONS = {
     "relu": nn.ReLU,
     "leakyrelu": nn.LeakyReLU,
@@ -466,32 +430,64 @@ def activation_from_name(name):
     return cls() if cls else None
 
 
-class FeatureHead(ClassifierHead):
+class VectorHead(nn.Module):
     """
-    A `ClassifierHead` which produces a fixed-width feature vector rather than class logits.
-
-    Use this when something downstream consumes the vector instead of interpreting it as class scores -- a
-    reinforcement learning policy, for instance, where the actor and critic are built on top of these features.
-    `features_dim` and `num_classes` are synonyms for the width of the output; the containing `Assembly` supplies the
-    latter, so a caller-supplied `num_classes` wins over a `features_dim` written into the config.
-
-    The optional trailing activation matches the reference MiniGrid/BabyAI feature extractors, which end in a ReLU.
+    A module which pools and flattens its input and applies a linear transform, to return a 1D vector.
+    Optionally adds a trailing activation which may be useful if a downstream module will consume this input (rather
+    than being passed through a softmax as a classification result). The size of the output is named `num_classes` for
+    unfortunate legacy reasons; because ClassifierHead came first.
     """
 
-    def __init__(self, features_dim=None, num_classes=None, activation=None, in_format=None, test_input=None,
-                 trunk_out_fmt=None, pooled_size=(1, 1)):
-        width = num_classes if num_classes is not None else features_dim
-        if width is None:
-            raise RuntimeError(f"{type(self).__name__} requires a `features_dim` (or its synonym `num_classes`).")
-        if features_dim is not None and num_classes is not None and features_dim != num_classes:
-            logging.warning(f"{type(self).__name__} was configured with features_dim={features_dim}, but the model "
-                            f"was built with num_classes={num_classes}. These are synonyms; using {num_classes}.")
-        super().__init__(width, in_format, test_input, trunk_out_fmt, pooled_size)
+    def __init__(self, num_classes, in_format=None, test_input=None, trunk_out_fmt=None, pooled_size=(1, 1),
+                 ckp_path=None, activation=None):
+        super().__init__()
+        if num_classes is None:
+            raise RuntimeError(f"{type(self).__name__} requires `num_classes` argument.")
+        if in_format is None and test_input is None:
+            raise RuntimeError(f"{type(self).__name__} requires either `in_format` or `test_input` to be able to "
+                               "derive input shape.")
+        if not (isinstance(pooled_size, int) or (isinstance(pooled_size, Sequence) and len(pooled_size) == 2)):
+            raise RuntimeError(f"pooled_size must be an int or a tuple of length 2, but instead got: {pooled_size}.")
+        if test_input is not None:
+            if trunk_out_fmt:
+                test_input = reformat(test_input, trunk_out_fmt, "img")  # Convert to the format requested by part.
+            input_shape = test_input.shape[1:]  # drop batch dimension
+        else:
+            fmt, ch, sz = parse_format(in_format)
+            if not isinstance(sz, Sequence) or len(sz) != 2:
+                raise RuntimeError(f"Input to {type(self).__name__} must be in image format, but got {in_format}.")
+            input_shape = [ch, *sz]
+        if len(input_shape) != 3:
+            raise RuntimeError(f"Cannot stack {type(self).__name__} on top of output of shape: {input_shape} "
+                               f"(format = {in_format}, trunk output format = {trunk_out_fmt}).")
+        self.pool = nn.AdaptiveAvgPool2d(pooled_size)
+        final_length = pooled_size ** 2 if isinstance(pooled_size, int) else (pooled_size[0] * pooled_size[1])
+        final_length *= input_shape[0]
+        self.linear = nn.Linear(final_length, num_classes)
         self.activation = activation_from_name(activation)
+        self.in_fmt = in_format or "img"
+        self.out_fmt = "vector"
+
+        load_checkpoint(self, ckp_path, subnet_prefix="head.")
 
     def forward(self, x):
-        x = super().forward(x)
+        x = self.pool(x)
+        # `reshape`, not `view`: the trunk's output is not necessarily contiguous. An RL observation arrives from
+        # SB3's VecTransposeImage as a channels-last array viewed as [B, C, H, W], the convolutions propagate that
+        # memory format, and pooling to the size the input already has preserves the strides.
+        x = x.reshape(x.shape[0], -1)
+        x = self.linear(x)
         return self.activation(x) if self.activation else x
+
+
+class ClassifierHead(VectorHead):
+    """
+    A 'VectorHead' which produces class logits.
+    """
+
+    def __init__(self, num_classes=None, in_format=None, test_input=None, trunk_out_fmt=None, pooled_size=(1, 1),
+                 ckp_path=None):
+        super().__init__(num_classes, in_format, test_input, trunk_out_fmt, pooled_size, ckp_path)
 
 
 class MLP(nn.Module):
@@ -662,6 +658,7 @@ class Assembly(nn.Module):
             input_shape=None,
             num_classes=None,
             reformat_options=None,  # FIXME: finish implementing BERT transform options
+            ckp_path=None,
     ):
         super().__init__()
         self.reformat_options = reformat_options
@@ -701,6 +698,8 @@ class Assembly(nn.Module):
 
         self.in_fmt = get_in_fmt(self.parts[0])
         self.out_fmt = get_out_fmt(self.head) if self.head else get_out_fmt(self.parts[0])
+
+        load_checkpoint(self, ckp_path)
 
     def train(self, mode: bool = True):
         super().train(mode)
