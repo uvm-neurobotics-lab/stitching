@@ -131,7 +131,8 @@ def setup_and_render(parser, args):
     finally:
         setup_env.close()
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
-    sb3_model.policy.load_state_dict(checkpoint["model"])
+    # Look for "policy" if "model" is not present, for backward compatibility.
+    sb3_model.policy.load_state_dict(checkpoint.get("model", checkpoint.get("policy")))
     sb3_model.policy.set_training_mode(False)
     logging.info(f"Loaded policy from {ckpt_path}"
                  + (f" (step {checkpoint['step']})" if "step" in checkpoint else ""))
