@@ -1,0 +1,122 @@
+#
+# Stitching two networks pre-trained on separate primitive skills: "Go to Goal" and "Unlock Door"
+# The environment tested here is a combination of both skills: a goal on the other side of a locked door.
+# We are stitching together the trunks of the two primitive policies, while training new actor/critic heads. However,
+# in this config, we take extra steps to include the "vector head" of each trunk.
+#
+
+trunk:
+  Assembly:
+    parts:
+    - ParallelPart:
+        agg: concat
+        in_format: img
+        out_format: [vector, [128, 1]]
+        parts:
+        - Assembly:  # Net 1: "Go to Goal" skill
+            frozen: false
+            ckp_path: ../minigrid-empty-random/checkpoint.pth
+            input_shape: [3, 7, 7]
+            num_classes: 64
+            parts:
+            - Net:
+                model_name: convnet
+                pretrained: false
+                x_dim: 3
+                num_blocks: 3
+                num_filters: [16, 32, 64]
+                num_conv_per_block: 1
+                kernel_size: 2
+                stride: 1
+                padding: 0
+                pool_size: null
+                norm_type: null
+                out_format: img
+            head:
+              VectorHead:
+                num_classes: 64
+                pooled_size: [4, 4]
+                activation: relu
+        - Assembly:  # Net 2: "Unlock Door" skill
+            frozen: false
+            ckp_path: ../minigrid-unlock/checkpoint.pth
+            input_shape: [3, 7, 7]
+            num_classes: 64
+            parts:
+            - Net:
+                model_name: convnet
+                pretrained: false
+                x_dim: 3
+                num_blocks: 3
+                num_filters: [16, 32, 64]
+                num_conv_per_block: 1
+                kernel_size: 2
+                stride: 1
+                padding: 0
+                pool_size: null
+                norm_type: null
+                out_format: img
+            head:
+              VectorHead:
+                num_classes: 64
+                pooled_size: [4, 4]
+                activation: relu
+    # Adapter: Combine the two skills
+    - SimpleAdapter:
+        frozen: false
+        init_identity: true
+        in_channels: 128
+        out_channels: 64
+        num_fc: 1
+        leading_norm: False
+        post_norm: False
+
+policy:
+  features_dim: 64
+  net_arch: {pi: [64, 64], vf: [64, 64]}
+  activation_fn: tanh
+  normalize_images: false
+
+save_checkpoints: true
+eval_checkpoints: true
+device: cpu
+
+train_config:
+  # Environment
+  benchmark: minigrid
+  env: MiniGrid-DoorKey-6x6-v0
+  obs_mode: symbolic
+  n_envs: 8
+  vec_env: dummy
+
+  # General Params
+  seed: 12345
+  total_timesteps: 500000
+
+  # Reporting.
+  eval_freq: 25000
+  save_freq: 100000
+
+  # Algorithm
+  algo: PPO
+  algo_args:
+    n_steps: 128  # One rollout is n_envs * n_steps = 1024 environment steps.
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  # Optimization
+  optimizer: Adam
+  optimizer_args:
+    lr: 2.5e-4
+    eps: 1.0e-5
+  lr_schedule: linear
+
+  # Evaluation
+  eval_episodes: 20
+  eval_n_envs: 1
