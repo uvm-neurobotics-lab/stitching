@@ -1,0 +1,79 @@
+#
+# PPO on MiniGrid-DoorKey-6x6-v0, but using a trunk which was pretrained on a single task, rather than training from
+# scratch. This takes the full pretrained trunk, including the VectorHead.
+#
+
+trunk:
+  Assembly:
+    frozen: false
+    ckp_path: ../minigrid-unlock/checkpoint.pth
+    parts:
+    - Net:
+        model_name: convnet
+        pretrained: false
+        # ckp_path: ../minigrid-unlock/checkpoint.pth  # Instead load here if we only want the convnet weights.
+        x_dim: 3
+        num_blocks: 3
+        num_filters: [16, 32, 64]
+        num_conv_per_block: 1
+        kernel_size: 2
+        stride: 1
+        padding: 0
+        pool_size: null
+        norm_type: null
+        in_format: img
+        out_format: img
+    head:
+      VectorHead:
+        pooled_size: [4, 4]
+        activation: relu
+
+policy:
+  features_dim: 64
+  net_arch: {pi: [64, 64], vf: [64, 64]}
+  activation_fn: tanh
+  normalize_images: false
+
+save_checkpoints: true
+eval_checkpoints: true
+device: cpu
+
+train_config:
+  # Environment
+  benchmark: minigrid
+  env: MiniGrid-DoorKey-6x6-v0
+  obs_mode: symbolic
+  n_envs: 8
+  vec_env: dummy
+
+  # General Params
+  seed: 12345
+  total_timesteps: 500000
+
+  # Reporting
+  eval_freq: 25000
+  save_freq: 100000
+
+  # Algorithm
+  algo: PPO
+  algo_args:
+    n_steps: 128
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+
+  # Optimization
+  optimizer: Adam
+  optimizer_args:
+    lr: 2.5e-4
+    eps: 1.0e-5
+  lr_schedule: linear
+
+  # Evaluation
+  eval_episodes: 20
+  eval_n_envs: 1
