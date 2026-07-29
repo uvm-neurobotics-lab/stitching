@@ -330,7 +330,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
 
     # Other/Launcher Arguments
     parser.add_argument("--hardware", metavar="CLUSTER", default="nvgpu",
-                        choices=["nvgpu", "nvgpu2", "hgnodes", "preempt"],
+                        choices=["nvgpu", "nvgpu2", "preempt", "general"],
                         help="The type of hardware to launch on (actually this just maps to the pre-baked sbatch "
                              "scripts in the same directory as this script, and is specifically based on UVM's Slurm "
                              "cluster).")

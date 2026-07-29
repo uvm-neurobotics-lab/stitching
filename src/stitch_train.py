@@ -58,10 +58,10 @@ def build_command(hardware, conda_env, config_path, seed, result_file, verbosity
         sbatch_filename = "train.sbatch"
     elif hardware == "nvgpu2":
         sbatch_filename = "train-2gpu.sbatch"
-    elif hardware == "hgnodes":
-        sbatch_filename = "hgtrain.sbatch"
     elif hardware == "preempt":
         sbatch_filename = "preempt-train.sbatch"
+    elif hardware == "general":
+        sbatch_filename = "train-cpu.sbatch"
     else:
         raise RuntimeError(f"Unrecognized hardware: {hardware}")
     sbatch_script = SCRIPT_DIR.parent / sbatch_filename
