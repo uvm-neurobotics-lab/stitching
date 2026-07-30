@@ -5,15 +5,29 @@ new random seeds.
 To test this script, try:
     python src/launch_replicates.py -d <experiment-folder> --seed 67890 -n -vv
 """
+import argparse
 import os
 import sys
 from pathlib import Path
 
 import utils.argparsing as argutils
-from stitch_train import build_command
-from utils.slurm import call_sbatch
+from utils.slurm import build_command, call_sbatch
 
 CFG_FILENAME = "config.yml"
+# Get the resolved path of this script, before any potential directory switching.
+SCRIPT_DIR = Path(__file__).parent.resolve()
+
+
+def script_type(script_name: str):
+    path = Path(script_name).expanduser().resolve()
+    if path.is_file():
+        return path
+    else:
+        path = SCRIPT_DIR / script_name
+        if path.is_file():
+            return path
+        else:
+            raise argparse.ArgumentTypeError(f"{script_name} ({path}) is not a file.")
 
 
 def create_arg_parser(desc, allow_abbrev=True):
@@ -30,6 +44,8 @@ def create_arg_parser(desc, allow_abbrev=True):
     parser = argutils.create_parser(desc, allow_abbrev=allow_abbrev)
 
     # Main Arguments
+    parser.add_argument("script", type=script_type, default=SCRIPT_DIR / "stitch_train.py",
+                        help="The script to be launched.")
     parser.add_argument("-d", "--dir", metavar="FOLDER", type=argutils.existing_path, required=True,
                         help="Location to scan for job configs.")
     parser.add_argument("--seed", type=int, required=True, help="The new seed to run.")
@@ -90,8 +106,8 @@ def scan_and_launch(args, launcher_args):
                 continue
 
         # Get the launch command.
-        command = build_command(args.nodes, args.conda_env, CFG_FILENAME, args.seed, res_fname, args.verbose,
-                                launcher_args)
+        command = build_command(args.script, args.nodes, args.conda_env, CFG_FILENAME, args.seed, res_fname,
+                                args.verbose, launcher_args)
 
         # Launch the job.
         # NOTE: The MKL_THREADING_LAYER variable is a workaround for an issue I was experiencing on the VACC while

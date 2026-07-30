@@ -19,13 +19,14 @@ from torch.utils.data.distributed import DistributedSampler
 import utils.argparsing as argutils
 import utils.datasets as datasets
 import utils.distributed as dist
+import utils.slurm as slurm
 import utils.training as training
 from assembly import model_from_config, unfreeze, validate_part, validate_part_list
 from utils.datasets import TaskInfo
-from utils import as_strings, ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
+from utils import ensure_config_param, make_pretty, _and, num_params, num_trainable_params, of_type
 
 # Get the resolved path of this script, before we switch directories.
-SCRIPT_DIR = Path(__file__).parent.resolve()
+SCRIPT_PATH = Path(__file__).resolve()
 
 NUM_CORES = os.cpu_count()
 if hasattr(os, "sched_getaffinity"):
@@ -36,47 +37,10 @@ if hasattr(os, "sched_getaffinity"):
 
 def build_command(hardware, conda_env, config_path, seed, result_file, verbosity, launcher_args):
     """
-    Builds an `sbatch` call suitable for launching this script on a Slurm cluster. Once built, the command can be
-    passed to `utils.slurm.call_sbatch()`.
-    Args:
-        hardware: The type of hardware to launch on (actually this just maps to the pre-baked sbatch scripts in the
-                 same directory as this script, and is specifically based on UVM's Slurm cluster).
-        conda_env: The name of the conda environment to activate before running the script.
-        config_path: The path of the config to pass to --config.
-        seed: The seed to use for --seed.
-        result_file: The path or filename to use for --metrics-output.
-        verbosity: The verbosity level to run at.
-        launcher_args: Arguments to be passed on to `sbatch`.
-
-    Returns:
-        A list of strings which can be used as an argument to `subprocess.run()`.
+    Builds an `sbatch` call suitable for launching this script on a Slurm cluster. See utils.slurm.build_command().
     """
-    # Find the script to run, relative to this file.
-    target_script = SCRIPT_DIR / "stitch_train.py"
-    assert target_script.is_file(), f"Script file ({target_script}) not found or is not a file."
-    if hardware == "nvgpu":
-        sbatch_filename = "train.sbatch"
-    elif hardware == "nvgpu2":
-        sbatch_filename = "train-2gpu.sbatch"
-    elif hardware == "preempt":
-        sbatch_filename = "preempt-train.sbatch"
-    elif hardware == "general":
-        sbatch_filename = "train-cpu.sbatch"
-    else:
-        raise RuntimeError(f"Unrecognized hardware: {hardware}")
-    sbatch_script = SCRIPT_DIR.parent / sbatch_filename
-    assert sbatch_script.is_file(), f"SBATCH file ({sbatch_script}) not found or is not a file."
-
-    # NOTE: We allow launching multiple different seeds from the same config, so supply these on the command line.
-    train_cmd = [target_script, "--config", config_path, "--seed", seed, "--metrics-output", result_file]
-    if verbosity:
-        train_cmd.append("-" + ("v" * verbosity))
-
-    # Add launcher wrapper.
-    launch_cmd = ["sbatch"] + launcher_args + [sbatch_script, conda_env] + train_cmd
-    launch_cmd = as_strings(launch_cmd)
-
-    return launch_cmd
+    return slurm.build_command(SCRIPT_PATH, hardware, conda_env, config_path, seed, result_file, verbosity,
+                               launcher_args)
 
 
 def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
