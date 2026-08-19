@@ -8,7 +8,7 @@
 #SBATCH --partition=general
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=30G
 
 if [[ "$SLURM_JOB_NUM_NODES" -ne 1 && "$SLURM_JOB_NUM_NODES" -ne "$SLURM_NTASKS" ]]; then
@@ -29,7 +29,7 @@ echo "Activate $CONDAENV"
 conda activate $CONDAENV
 
 nodes=$SLURM_NTASKS
-nproc=$SLURM_GPUS_ON_NODE
+nproc=$((SLURM_GPUS_ON_NODE > 0 ? SLURM_GPUS_ON_NODE : 1))
 ncpu=$SLURM_CPUS_PER_TASK
 nworkers=$((ncpu / nproc))
 if [ $nworkers -lt 5 ]; then
