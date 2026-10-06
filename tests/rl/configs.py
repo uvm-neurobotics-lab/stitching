@@ -19,6 +19,7 @@ SMOKE_TRAIN_CONFIG = {
     "save_freq": 16,
     "record_freq": 16,
     "eval_episodes": 2,
+    "final_eval_episodes": 2,
     "eval_n_envs": 1,
     "algo": "PPO",
     "algo_args": {"n_steps": 8, "batch_size": 16, "n_epochs": 1},

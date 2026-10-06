@@ -40,14 +40,16 @@ class RLLog(BaseLog):
     `BaseLog.decide_save_and_eval()`'s modulo test lands on them; `algo.check_algo_config()` rounds them for you.
     """
 
-    def __init__(self, benchmark, expected_steps, eval_episodes=20, deterministic_eval=True,
-                 metrics_to_print=tuple(), print_freq=1, save_freq=0, eval_freq=0, save_dir=None, model_name="",
-                 use_wandb=False, checkpoint_initial_model=True, print_delimiter="\t"):
+    def __init__(self, benchmark, expected_steps, eval_episodes=20, final_eval_episodes=None, eval_seed=None,
+                 deterministic_eval=True, metrics_to_print=tuple(), print_freq=1, save_freq=0, eval_freq=0,
+                 save_dir=None, model_name="", use_wandb=False, checkpoint_initial_model=True, print_delimiter="\t"):
         super().__init__(metrics_to_print, eval_freq, save_freq, save_dir, model_name, use_wandb,
                          checkpoint_initial_model, False, print_delimiter)
         self.benchmark = benchmark
         self.expected_steps = expected_steps
         self.eval_episodes = eval_episodes
+        self.final_eval_episodes = final_eval_episodes or eval_episodes
+        self.eval_seed = eval_seed
         self.deterministic_eval = deterministic_eval
         self.print_freq = print_freq
         self.records_seen = 0
@@ -60,12 +62,21 @@ class RLLog(BaseLog):
             self.define_wandb_metric("GPU Mem", "max")
             self.define_wandb_metric("Proc Mem", "max")
 
-    def evaluate(self, sb3_model, eval_env):
-        """ Run complete episodes on the evaluation environment and summarize them. """
+    def evaluate(self, sb3_model, eval_env, episodes=None):
+        """
+        Run complete episodes on the evaluation environment and summarize them.
+
+        The environment is reseeded first, so that every evaluation (each checkpoint, and the final one) is scored on
+        the same layouts. Without this, each evaluation would continue the environment's random stream and see a
+        new set of layouts, adding layout-to-layout noise to the learning curve.
+        """
         from stable_baselines3.common.evaluation import evaluate_policy
 
+        episodes = episodes or self.eval_episodes
         start = time()
-        rewards, lengths = evaluate_policy(sb3_model, eval_env, n_eval_episodes=self.eval_episodes,
+        if self.eval_seed is not None:
+            eval_env.seed(self.eval_seed)  # Takes effect on the reset() that evaluate_policy() begins with.
+        rewards, lengths = evaluate_policy(sb3_model, eval_env, n_eval_episodes=episodes,
                                            deterministic=self.deterministic_eval, return_episode_rewards=True,
                                            warn=False)
         successes = [self.benchmark.is_success({"r": r}) for r in rewards]
@@ -76,16 +87,18 @@ class RLLog(BaseLog):
             "Time/Eval Total": time() - start,
         }
 
-    def maybe_save_and_eval(self, it, sb3_model, eval_env, config, should_eval=None, should_save=None):
+    def maybe_save_and_eval(self, it, sb3_model, eval_env, config, should_eval=None, should_save=None,
+                            eval_episodes=None):
         should_save, should_eval = self.decide_save_and_eval(it, should_eval, should_save)
         metrics = {}
 
         if should_eval and eval_env is not None:
-            metrics.update(self.evaluate(sb3_model, eval_env))
+            eval_episodes = eval_episodes or self.eval_episodes
+            metrics.update(self.evaluate(sb3_model, eval_env, eval_episodes))
             self.info(f"    Step {it} Eval: Reward: {metrics['Eval/Reward']:.3f}"
                       f"\tSuccess Rate: {metrics['Eval/Success Rate']:.3f}"
                       f"\tEpisode Length: {metrics['Eval/Episode Length']:.1f}"
-                      f"\t({self.eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
+                      f"\t({eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
 
         if should_save and dist.is_main_process():
             self.write_checkpoint(self.build_checkpoint(it, sb3_model, config), it)
@@ -94,6 +107,11 @@ class RLLog(BaseLog):
             metrics["Time/Total"] = time() - self.start_time
 
         self.record(metrics, it)
+
+    def close(self, it, *args, **kwargs):
+        """ Finish the run. The final evaluation uses `final_eval_episodes`, since it is the number we report. """
+        kwargs.setdefault("eval_episodes", self.final_eval_episodes)
+        return super().close(it, *args, **kwargs)
 
     def build_checkpoint(self, it, sb3_model, config):
         """

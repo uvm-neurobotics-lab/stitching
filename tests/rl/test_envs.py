@@ -66,6 +66,34 @@ def test_eval_env_is_seeded_differently_from_training():
         eval_env.close()
 
 
+@pytest.mark.parametrize("reseed", [True, False])
+def test_every_evaluation_sees_the_same_layouts(monkeypatch, reseed):
+    # Without reseeding, each evaluation would continue the eval env's random stream and see new layouts, so
+    # differences between checkpoints would be partly due to the layouts rather than the policy.
+    import numpy as np
+    import stable_baselines3.common.evaluation as sb3_eval
+    from rl.logging import RLLog
+
+    first_obs = []
+
+    def fake_evaluate_policy(model, env, **kwargs):
+        first_obs.append(env.reset())
+        return [1.0], [1]
+
+    monkeypatch.setattr(sb3_eval, "evaluate_policy", fake_evaluate_policy)
+    config = validated(train_config={"env": "MiniGrid-DoorKey-8x8-v0"})
+    train_cfg = config["train_config"]
+    eval_seed = train_cfg["seed"] + train_cfg["eval_seed_offset"]
+    log = RLLog(get_benchmark("minigrid"), expected_steps=1, eval_seed=eval_seed if reseed else None)
+    eval_env = make_vec_envs(config, n_envs=1, seed=eval_seed, is_eval=True)
+    try:
+        log.evaluate(None, eval_env)
+        log.evaluate(None, eval_env)
+    finally:
+        eval_env.close()
+    assert np.array_equal(first_obs[0], first_obs[1]) == reseed
+
+
 def test_eval_env_is_omitted_when_evaluation_is_off():
     config = validated(eval_checkpoints=False)
     train_env, eval_env = make_train_and_eval_envs(config)

@@ -99,13 +99,15 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
     parser.add_argument("--eval-freq", type=int, metavar="N", help="Evaluate every N environment steps.")
     parser.add_argument("--save-freq", type=int, metavar="N", help="Checkpoint every N environment steps.")
     parser.add_argument("--eval-episodes", type=int, metavar="N", help="Number of episodes per evaluation.")
-    parser.add_argument("--n-steps", type=int, metavar="N",
+    parser.add_argument("--final-eval-episodes", type=int, metavar="N",
+                        help="Number of episodes in the evaluation at the end of training.")
+    parser.add_argument("--steps", dest="n_steps", type=int, metavar="N",
                         help="Steps to collect from each environment per rollout. One rollout is n_envs * n_steps.")
     parser.add_argument("--ppo-epochs", dest="n_epochs", type=int, metavar="N",
                         help="Number of passes the algorithm makes over each rollout. Distinct from the number of"
-                             " environment steps, which is --timesteps.")
+                             " environment steps, which is --steps.")
     parser.add_argument("-b", "--batch-size", type=int, metavar="N",
-                        help="Minibatch size for each update. Must divide n_envs * n_steps.")
+                        help="Minibatch size for each update. Must divide n_envs * n_steps evenly.")
     parser.add_argument("--gamma", type=float, metavar="VAL", help="Discount factor.")
     parser.add_argument("--ent-coef", type=float, metavar="VAL",
                         help="Entropy bonus weight. Raise this if the policy stops exploring too early.")
@@ -188,7 +190,7 @@ def prep_config(parser, args):
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
                                                                  ["benchmark", "env", "obs_mode", "n_envs", "vec_env",
                                                                   "seed", "total_timesteps", "eval_freq", "save_freq",
-                                                                  "eval_episodes"])
+                                                                  "eval_episodes", "final_eval_episodes"])
     # Special option to override some algorithm parameters.
     algoconf = config["train_config"].setdefault("algo_args", {})
     config["train_config"]["algo_args"] = argutils.override_from_command_line(
@@ -210,6 +212,7 @@ def prep_config(parser, args):
         train_cfg = config["train_config"]
         train_cfg["n_envs"] = 2
         train_cfg["eval_episodes"] = 2
+        train_cfg["final_eval_episodes"] = 2
         train_cfg["eval_n_envs"] = 1
         train_cfg["video_episodes"] = 1  # Still record, so the smoke test covers that path too.
         train_cfg["algo_args"].update({"n_steps": 8, "batch_size": 16, "n_epochs": 1})
@@ -242,7 +245,6 @@ def setup_and_train(parser, config):
     try:
         logging.info("Constructing model.")
         sb3_model = algo.build_model(config, train_env, device)
-
         raw_metrics = algo.train(config, sb3_model, eval_env, device)
     finally:
         train_env.close()

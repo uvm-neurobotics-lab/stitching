@@ -134,6 +134,7 @@ def check_env_config(config):
     ensure_config_param(config, ["train_config", "normalize_reward"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "eval_env"], of_type(str), required=False)
     ensure_config_param(config, ["train_config", "eval_episodes"], gt_zero, dflt=20)
+    ensure_config_param(config, ["train_config", "final_eval_episodes"], gt_zero, dflt=200)
     ensure_config_param(config, ["train_config", "eval_n_envs"], gt_zero, dflt=1)
     ensure_config_param(config, ["train_config", "eval_seed_offset"], of_type(int), dflt=10000)
 
@@ -210,8 +211,10 @@ def make_train_and_eval_envs(config):
     """
     Build the training and evaluation environments.
 
-    The evaluation environment is seeded differently from the training one so that evaluation episodes are not the
-    same layouts the agent just trained on.
+    The evaluation environment is seeded differently from the training one, so it draws its layouts from a different
+    random stream. This does *not* make the two sets of layouts disjoint: MiniGrid has no held-out levels, and a
+    small level like DoorKey-6x6 has few enough layouts that training will visit nearly all of them. Evaluation
+    therefore measures in-distribution performance, not generalization to unseen layouts.
 
     Returns:
         tuple: (train_env, eval_env). `eval_env` is None if evaluation is turned off.
