@@ -10,13 +10,15 @@ does not disturb the first.
     env: BabyAI-GoToRedBallNoDists-v0
 """
 import logging
+from collections import Counter
 from typing import Callable
 
+import gymnasium as gym
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.preprocessing import is_image_space, is_image_space_channels_first
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize, VecTransposeImage
 
-from utils import ensure_config_param, gt_zero, of_type, one_of
+from utils import ensure_config_param, gte_zero, gt_zero, of_type, one_of
 
 VEC_ENV_CLASSES = {"dummy": DummyVecEnv, "subproc": SubprocVecEnv}
 
@@ -32,8 +34,11 @@ class Benchmark:
         """ Import whatever package registers this benchmark's environment ids with Gymnasium. """
         raise NotImplementedError
 
-    def wrapper_class(self, obs_mode, obs_kwargs=None) -> Callable:
-        """ Return a callable which applies this benchmark's wrappers for the given observation mode to one env. """
+    def wrapper_class(self, obs_mode, obs_kwargs=None, count_bonus=0.0) -> Callable:
+        """
+        Return a callable which applies this benchmark's wrappers for the given observation mode to one env, plus a
+        count-based exploration bonus of `count_bonus / sqrt(n(s))` if `count_bonus` is nonzero.
+        """
         raise NotImplementedError
 
     def is_success(self, ep_info) -> bool:
@@ -68,7 +73,13 @@ class MiniGridBenchmark(Benchmark):
     def register(self):
         import minigrid  # noqa: F401  (importing is what registers the env ids)
 
-    def wrapper_class(self, obs_mode, obs_kwargs=None):
+    def wrapper_class(self, obs_mode, obs_kwargs=None, count_bonus=0.0):
+        obs_wrapper = self._obs_wrapper(obs_mode, obs_kwargs)
+        if not count_bonus:
+            return obs_wrapper
+        return lambda env: MiniGridCountBonus(obs_wrapper(env), count_bonus)
+
+    def _obs_wrapper(self, obs_mode, obs_kwargs=None):
         from minigrid.wrappers import (FlatObsWrapper, ImgObsWrapper, RGBImgObsWrapper, RGBImgPartialObsWrapper)
         obs_kwargs = dict(obs_kwargs or {})
 
@@ -89,6 +100,44 @@ class MiniGridBenchmark(Benchmark):
         # MiniGrid pays out `1 - 0.9 * (step_count / max_steps)` on success and exactly 0 otherwise, so any positive
         # return means the agent solved the task.
         return ep_info["r"] > 0
+
+
+class MiniGridCountBonus(gym.Wrapper):
+    """
+    Adds `coef / sqrt(n(s))` to every reward, where `n(s)` counts the visits to state `s` over this env's lifetime
+    (not reset between episodes). The state is the agent's position and direction, what it is carrying, and the
+    open/locked state of every door, so picking up the key and opening the door each lead to fresh, rewarding states.
+
+    The state ignores the layout, which changes every episode; the counts therefore measure how familiar a position
+    and subgoal stage are in general. Each env keeps its own counts, so with N parallel envs a state must be visited
+    roughly N times as often before its bonus decays.
+
+    This must wrap *outside* the Monitor, so that the logged episode returns, and hence success, stay extrinsic.
+    """
+
+    def __init__(self, env, coef):
+        super().__init__(env)
+        self.coef = coef
+        self.counts = Counter()
+        self._doors = []
+
+    def reset(self, **kwargs):
+        from minigrid.core.world_object import Door
+        obs, info = self.env.reset(**kwargs)
+        self._doors = [obj for obj in self.unwrapped.grid.grid if isinstance(obj, Door)]
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        state = self._state()
+        self.counts[state] += 1
+        return obs, reward + self.coef / self.counts[state] ** 0.5, terminated, truncated, info
+
+    def _state(self):
+        env = self.unwrapped
+        carrying = (env.carrying.type, env.carrying.color) if env.carrying else None
+        doors = tuple((d.is_open, d.is_locked) for d in self._doors)
+        return tuple(env.agent_pos), env.agent_dir, carrying, doors
 
 
 BENCHMARKS = {b.name: b for b in [MiniGridBenchmark()]}
@@ -132,6 +181,7 @@ def check_env_config(config):
     ensure_config_param(config, ["train_config", "vec_env"], one_of(sorted(VEC_ENV_CLASSES)), dflt="dummy")
     ensure_config_param(config, ["train_config", "normalize_obs"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "normalize_reward"], of_type(bool), dflt=False)
+    ensure_config_param(config, ["train_config", "count_bonus"], gte_zero, dflt=0.0)
     ensure_config_param(config, ["train_config", "eval_env"], of_type(str), required=False)
     ensure_config_param(config, ["train_config", "n_eval_episodes"], gt_zero, dflt=100)
     ensure_config_param(config, ["train_config", "n_final_eval_episodes"], gt_zero,
@@ -147,7 +197,6 @@ def check_env_config(config):
 
     # Fail here, with the list of ids to look at, rather than deep inside env construction.
     benchmark.register()
-    import gymnasium as gym
     try:
         gym.spec(train_cfg["env"])
     except Exception as e:
@@ -155,7 +204,7 @@ def check_env_config(config):
                            f"'{benchmark.name}' (e.g. 'BabyAI-GoToRedBallNoDists-v0'). Original error: {e}")
 
 
-def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=None):
+def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=None, count_bonus=0.0):
     """
     Build one vectorized environment according to the config.
 
@@ -165,6 +214,8 @@ def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=Non
         seed: (Optional) Override the seed.
         is_eval: Whether this is the evaluation environment, which uses `eval_env` if one is configured.
         render_mode: (Optional) Gymnasium render mode, e.g. "rgb_array" to capture frames for a video.
+        count_bonus: (Optional) Coefficient of a count-based exploration bonus added to the rewards. Only for
+            training; the bonus is excluded from the Monitor's episode returns but not from the rewards `step()` returns.
     Returns:
         VecEnv: The vectorized environment.
     """
@@ -189,7 +240,7 @@ def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=Non
         n_envs=n_envs,
         seed=seed,
         env_kwargs=env_kwargs,
-        wrapper_class=benchmark.wrapper_class(train_cfg["obs_mode"], train_cfg.get("obs_kwargs")),
+        wrapper_class=benchmark.wrapper_class(train_cfg["obs_mode"], train_cfg.get("obs_kwargs"), count_bonus),
         vec_env_cls=VEC_ENV_CLASSES[train_cfg["vec_env"]] if n_envs > 1 else DummyVecEnv,
     )
     return maybe_transpose_images(venv)
@@ -221,7 +272,7 @@ def make_train_and_eval_envs(config):
         tuple: (train_env, eval_env). `eval_env` is None if evaluation is turned off.
     """
     train_cfg = config["train_config"]
-    train_env = make_vec_envs(config)
+    train_env = make_vec_envs(config, count_bonus=train_cfg["count_bonus"])
 
     eval_env = None
     if config.get("eval_checkpoints", True):

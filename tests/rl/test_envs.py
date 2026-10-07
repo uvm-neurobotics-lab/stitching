@@ -115,3 +115,35 @@ def test_unknown_environment_is_reported_clearly():
     from rl_train import validate_config
     with pytest.raises(RuntimeError, match="not registered"):
         validate_config(smoke_config(train_config={"env": "MiniGrid-NoSuchEnv-v0"}), print_config=False)
+
+
+def test_count_bonus_decays_with_visits():
+    import gymnasium as gym
+    import minigrid  # noqa: F401
+    from rl.envs import MiniGridCountBonus
+    env = MiniGridCountBonus(gym.make("MiniGrid-Empty-5x5-v0"), coef=0.1)
+    env.reset(seed=0)
+    left, right = 0, 1
+    _, first, *_ = env.step(left)
+    _, _, *_ = env.step(right)  # Back to the starting direction, which was never counted.
+    _, second, *_ = env.step(left)
+    assert first == pytest.approx(0.1)
+    assert second == pytest.approx(0.1 / 2 ** 0.5)
+
+
+def test_count_bonus_is_training_only_and_not_logged():
+    # The bonus must reach PPO, but the Monitor's returns (hence success rate) and the eval env stay extrinsic.
+    config = validated(train_config={"count_bonus": 0.1})
+    train_env, eval_env = make_train_and_eval_envs(config)
+    try:
+        train_env.reset()
+        _, rewards, _, _ = train_env.step([0] * train_env.num_envs)
+        assert all(r > 0 for r in rewards), "Every training step should carry a positive bonus."
+        monitor = train_env.envs[0].env.env  # Bonus -> ImgObsWrapper -> Monitor.
+        assert sum(monitor.rewards) == 0, "The Monitor sits inside the bonus, so it should see no bonus."
+        eval_env.reset()
+        _, rewards, _, _ = eval_env.step([0])
+        assert all(r == 0 for r in rewards), "The eval env should not carry the bonus."
+    finally:
+        train_env.close()
+        eval_env.close()
