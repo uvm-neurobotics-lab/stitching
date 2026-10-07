@@ -133,9 +133,10 @@ def check_env_config(config):
     ensure_config_param(config, ["train_config", "normalize_obs"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "normalize_reward"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "eval_env"], of_type(str), required=False)
-    ensure_config_param(config, ["train_config", "eval_episodes"], gt_zero, dflt=20)
-    ensure_config_param(config, ["train_config", "final_eval_episodes"], gt_zero, dflt=200)
-    ensure_config_param(config, ["train_config", "eval_n_envs"], gt_zero, dflt=1)
+    ensure_config_param(config, ["train_config", "n_eval_episodes"], gt_zero, dflt=100)
+    ensure_config_param(config, ["train_config", "n_final_eval_episodes"], gt_zero,
+                        dflt=config["train_config"]["n_eval_episodes"])
+    ensure_config_param(config, ["train_config", "n_eval_envs"], gt_zero, dflt=1)
     ensure_config_param(config, ["train_config", "eval_seed_offset"], of_type(int), dflt=10000)
 
     # Running statistics only make sense for real-valued observations. On uint8 images VecNormalize would both
@@ -224,7 +225,7 @@ def make_train_and_eval_envs(config):
 
     eval_env = None
     if config.get("eval_checkpoints", True):
-        eval_env = make_vec_envs(config, n_envs=train_cfg["eval_n_envs"],
+        eval_env = make_vec_envs(config, n_envs=train_cfg["n_eval_envs"],
                                  seed=train_cfg["seed"] + train_cfg["eval_seed_offset"], is_eval=True)
 
     if train_cfg["normalize_obs"] or train_cfg["normalize_reward"]:

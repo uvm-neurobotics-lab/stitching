@@ -60,5 +60,5 @@ train_config:
     lr: 2.5e-4
   lr_schedule: linear
 
-  eval_episodes: 20
-  eval_n_envs: 1
+  n_eval_episodes: 100
+  n_eval_envs: 1

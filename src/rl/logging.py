@@ -40,15 +40,16 @@ class RLLog(BaseLog):
     `BaseLog.decide_save_and_eval()`'s modulo test lands on them; `algo.check_algo_config()` rounds them for you.
     """
 
-    def __init__(self, benchmark, expected_steps, eval_episodes=20, final_eval_episodes=None, eval_seed=None,
-                 deterministic_eval=True, metrics_to_print=tuple(), print_freq=1, save_freq=0, eval_freq=0,
-                 save_dir=None, model_name="", use_wandb=False, checkpoint_initial_model=True, print_delimiter="\t"):
+    def __init__(self, benchmark, expected_steps, n_eval_episodes=20, n_final_eval_episodes=None,
+                 eval_seed=None, deterministic_eval=True, metrics_to_print=tuple(), print_freq=1, save_freq=0,
+                 eval_freq=0, save_dir=None, model_name="", use_wandb=False, checkpoint_initial_model=True,
+                 print_delimiter="\t"):
         super().__init__(metrics_to_print, eval_freq, save_freq, save_dir, model_name, use_wandb,
                          checkpoint_initial_model, False, print_delimiter)
         self.benchmark = benchmark
         self.expected_steps = expected_steps
-        self.eval_episodes = eval_episodes
-        self.final_eval_episodes = final_eval_episodes or eval_episodes
+        self.n_eval_episodes = n_eval_episodes
+        self.n_final_eval_episodes = n_final_eval_episodes or n_eval_episodes
         self.eval_seed = eval_seed
         self.deterministic_eval = deterministic_eval
         self.print_freq = print_freq
@@ -72,7 +73,7 @@ class RLLog(BaseLog):
         """
         from stable_baselines3.common.evaluation import evaluate_policy
 
-        episodes = episodes or self.eval_episodes
+        episodes = episodes or self.n_eval_episodes
         start = time()
         if self.eval_seed is not None:
             eval_env.seed(self.eval_seed)  # Takes effect on the reset() that evaluate_policy() begins with.
@@ -88,17 +89,17 @@ class RLLog(BaseLog):
         }
 
     def maybe_save_and_eval(self, it, sb3_model, eval_env, config, should_eval=None, should_save=None,
-                            eval_episodes=None):
+                            n_eval_episodes=None):
         should_save, should_eval = self.decide_save_and_eval(it, should_eval, should_save)
         metrics = {}
 
         if should_eval and eval_env is not None:
-            eval_episodes = eval_episodes or self.eval_episodes
-            metrics.update(self.evaluate(sb3_model, eval_env, eval_episodes))
+            n_eval_episodes = n_eval_episodes or self.n_eval_episodes
+            metrics.update(self.evaluate(sb3_model, eval_env, n_eval_episodes))
             self.info(f"    Step {it} Eval: Reward: {metrics['Eval/Reward']:.3f}"
                       f"\tSuccess Rate: {metrics['Eval/Success Rate']:.3f}"
                       f"\tEpisode Length: {metrics['Eval/Episode Length']:.1f}"
-                      f"\t({eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
+                      f"\t({n_eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
 
         if should_save and dist.is_main_process():
             self.write_checkpoint(self.build_checkpoint(it, sb3_model, config), it)
@@ -109,8 +110,8 @@ class RLLog(BaseLog):
         self.record(metrics, it)
 
     def close(self, it, *args, **kwargs):
-        """ Finish the run. The final evaluation uses `final_eval_episodes`, since it is the number we report. """
-        kwargs.setdefault("eval_episodes", self.final_eval_episodes)
+        """ Finish the run. The final evaluation uses `n_final_eval_episodes`, since it's the number we report. """
+        kwargs.setdefault("n_eval_episodes", self.n_final_eval_episodes)
         return super().close(it, *args, **kwargs)
 
     def build_checkpoint(self, it, sb3_model, config):

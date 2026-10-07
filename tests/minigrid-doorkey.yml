@@ -80,5 +80,5 @@ train_config:
   lr_schedule: linear
 
   # Evaluation
-  eval_episodes: 20
-  eval_n_envs: 1
+  n_eval_episodes: 100
+  n_eval_envs: 1

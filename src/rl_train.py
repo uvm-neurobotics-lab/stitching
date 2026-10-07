@@ -98,8 +98,9 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="Total number of environment steps to train for.")
     parser.add_argument("--eval-freq", type=int, metavar="N", help="Evaluate every N environment steps.")
     parser.add_argument("--save-freq", type=int, metavar="N", help="Checkpoint every N environment steps.")
-    parser.add_argument("--eval-episodes", type=int, metavar="N", help="Number of episodes per evaluation.")
-    parser.add_argument("--final-eval-episodes", type=int, metavar="N",
+    parser.add_argument("--eval-episodes", dest="n_eval_episodes", type=int, metavar="N",
+                        help="Number of episodes per evaluation.")
+    parser.add_argument("--final-eval-episodes", dest="n_final_eval_episodes", type=int, metavar="N",
                         help="Number of episodes in the evaluation at the end of training.")
     parser.add_argument("--steps", dest="n_steps", type=int, metavar="N",
                         help="Steps to collect from each environment per rollout. One rollout is n_envs * n_steps.")
@@ -190,7 +191,7 @@ def prep_config(parser, args):
     config["train_config"] = argutils.override_from_command_line(config["train_config"], parser, args,
                                                                  ["benchmark", "env", "obs_mode", "n_envs", "vec_env",
                                                                   "seed", "total_timesteps", "eval_freq", "save_freq",
-                                                                  "eval_episodes", "final_eval_episodes"])
+                                                                  "n_eval_episodes", "n_final_eval_episodes"])
     # Special option to override some algorithm parameters.
     algoconf = config["train_config"].setdefault("algo_args", {})
     config["train_config"]["algo_args"] = argutils.override_from_command_line(
@@ -211,9 +212,9 @@ def prep_config(parser, args):
         config["checkpoint_initial_model"] = False
         train_cfg = config["train_config"]
         train_cfg["n_envs"] = 2
-        train_cfg["eval_episodes"] = 2
-        train_cfg["final_eval_episodes"] = 2
-        train_cfg["eval_n_envs"] = 1
+        train_cfg["n_eval_episodes"] = 2
+        train_cfg["n_final_eval_episodes"] = 2
+        train_cfg["n_eval_envs"] = 2
         train_cfg["video_episodes"] = 1  # Still record, so the smoke test covers that path too.
         train_cfg["algo_args"].update({"n_steps": 8, "batch_size": 16, "n_epochs": 1})
         train_cfg["total_timesteps"] = 3 * 2 * 8  # Three rollouts, mirroring the supervised smoke test's 3 batches.
