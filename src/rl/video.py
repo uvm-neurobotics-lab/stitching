@@ -36,9 +36,13 @@ def rollout(sb3_model, venv, benchmark, episodes, deterministic=True):
     obs = venv.reset()
     results = []
     ep_reward, ep_length = 0.0, 0
+    # A recurrent policy carries its LSTM state from step to step, and must be told when an episode starts so it can
+    # clear it. A feedforward policy ignores both.
+    state, episode_start = None, np.ones((venv.num_envs,), dtype=bool)
     while len(results) < episodes:
-        action, _ = sb3_model.predict(obs, deterministic=deterministic)
+        action, state = sb3_model.predict(obs, state=state, episode_start=episode_start, deterministic=deterministic)
         obs, rewards, dones, _ = venv.step(action)
+        episode_start = dones
         ep_reward += float(rewards[0])
         ep_length += 1
         if dones[0]:

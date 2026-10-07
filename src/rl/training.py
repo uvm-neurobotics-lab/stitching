@@ -9,6 +9,7 @@ import logging
 import math
 from pathlib import Path
 
+import sb3_contrib
 import stable_baselines3
 import torch
 
@@ -19,7 +20,7 @@ from rl.models import describe_parameters, restore_pretrained_weights
 from rl.policies import policy_kwargs_from_config, policy_name_for
 from utils import ensure_config_param, gt_zero, gte_zero, of_type, one_of
 
-ALGOS = {"PPO": stable_baselines3.PPO}
+ALGOS = {"PPO": stable_baselines3.PPO, "RecurrentPPO": sb3_contrib.RecurrentPPO}
 
 
 def check_algo_config(config):
@@ -40,8 +41,8 @@ def check_algo_config(config):
                            "and rollout buffer state, not just the weights. Use --load-from to start a new run from "
                            "an existing model's weights.")
     ensure_config_param(config, "record_video", of_type(bool), dflt=True)
-    ensure_config_param(config, ["train_config", "video_episodes"], gt_zero, dflt=5)
-    ensure_config_param(config, ["train_config", "video_fps"], gt_zero, dflt=8)
+    ensure_config_param(config, "video_episodes", gt_zero, dflt=5)
+    ensure_config_param(config, "video_fps", gt_zero, dflt=6)
     ensure_config_param(config, "save_dir", of_type((str, Path)), required=config.get("save_checkpoints"))
     if "save_dir" in config:
         config["save_dir"] = Path(config["save_dir"]).expanduser().resolve()

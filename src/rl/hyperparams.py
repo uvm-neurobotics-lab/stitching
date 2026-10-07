@@ -27,12 +27,15 @@ MINIGRID_PPO = {
 
 MINIGRID_LR = 2.5e-4
 
+# RecurrentPPO takes the same arguments as PPO. These are untuned for it; they are simply PPO's.
 ALGO_DEFAULTS = {
     ("minigrid", "PPO"): MINIGRID_PPO,
+    ("minigrid", "RecurrentPPO"): MINIGRID_PPO,
 }
 
 LR_DEFAULTS = {
     ("minigrid", "PPO"): MINIGRID_LR,
+    ("minigrid", "RecurrentPPO"): MINIGRID_LR,
 }
 
 

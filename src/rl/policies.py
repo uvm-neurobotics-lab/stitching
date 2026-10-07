@@ -12,6 +12,12 @@ from assembly import ACTIVATIONS, _lookup
 from rl.models import AssemblyExtractor
 from utils import ensure_config_param, gt_zero, has_arg, of_type, one_of
 
+# Algorithms whose policy has an LSTM between the trunk and the actor/critic heads.
+RECURRENT_ALGOS = {"RecurrentPPO"}
+
+# Policy options which configure the LSTM of a recurrent algorithm.
+OPTIONAL_KEYS = ("lstm_hidden_size", "n_lstm_layers", "shared_lstm", "enable_critic_lstm")
+
 # Config keys which hold a trunk, in priority order. "trunk" is the name to use; "model" and "assembly" are accepted
 # so that a config written for `stitch_train.py` can be handed to `rl_train.py` unchanged.
 TRUNK_KEYS = ("trunk", "model", "assembly")
@@ -60,6 +66,19 @@ def check_policy_config(config):
     ensure_config_param(config, ["policy", "share_features_extractor"], of_type(bool), dflt=True)
     ensure_config_param(config, ["policy", "freeze_norm_stats"], of_type(bool), dflt=True)
 
+    # The LSTM sits between the trunk and the actor/critic MLPs, and only exists for a recurrent algorithm.
+    if config["train_config"]["algo"] in RECURRENT_ALGOS:
+        ensure_config_param(config, ["policy", "lstm_hidden_size"], gt_zero, dflt=128)
+        ensure_config_param(config, ["policy", "n_lstm_layers"], gt_zero, dflt=1)
+        ensure_config_param(config, ["policy", "shared_lstm"], of_type(bool), dflt=False)
+        ensure_config_param(config, ["policy", "enable_critic_lstm"], of_type(bool),
+                            dflt=not config["policy"]["shared_lstm"])
+    else:
+        lstm_keys = [k for k in OPTIONAL_KEYS if k in config["policy"]]
+        if lstm_keys:
+            raise RuntimeError(f"policy options {lstm_keys} only apply to a recurrent algorithm "
+                               f"({sorted(RECURRENT_ALGOS)}), but algo is '{config['train_config']['algo']}'.")
+
     validate_trunk_part(config)
 
 
@@ -104,7 +123,8 @@ def default_normalize_images(obs_mode):
 def policy_name_for(config):
     """ SB3's policy alias for this observation shape. We always supply our own extractor, so this only picks the
     defaults we are about to override anyway; choosing by shape keeps SB3 from warning about a mismatch. """
-    return "CnnPolicy" if config["train_config"]["obs_mode"] != "flat" else "MlpPolicy"
+    kind = "Cnn" if config["train_config"]["obs_mode"] != "flat" else "Mlp"
+    return f"{kind}LstmPolicy" if config["train_config"]["algo"] in RECURRENT_ALGOS else f"{kind}Policy"
 
 
 def policy_kwargs_from_config(config):
@@ -116,6 +136,7 @@ def policy_kwargs_from_config(config):
     # `lr` here too would be a duplicate argument. The learning rate reaches the algorithm via `learning_rate`.
     optimizer_kwargs = {k: v for k, v in train_cfg["optimizer_args"].items() if k != "lr"}
 
+    optional_kwargs = {k: policy_cfg[k] for k in OPTIONAL_KEYS if k in policy_cfg}
     return {
         "features_extractor_class": AssemblyExtractor,
         "features_extractor_kwargs": {
@@ -130,4 +151,5 @@ def policy_kwargs_from_config(config):
         "share_features_extractor": policy_cfg["share_features_extractor"],
         "optimizer_class": getattr(torch.optim, train_cfg["optimizer"]),
         "optimizer_kwargs": optimizer_kwargs,
+        **optional_kwargs,
     }

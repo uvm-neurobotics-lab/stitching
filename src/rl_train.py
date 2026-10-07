@@ -151,8 +151,8 @@ def validate_config(config, print_config=True):
     policies.trunk_key(config)
     ensure_workers(config)
     envs.check_env_config(config)
+    algo.check_algo_config(config)  # Before the policy, which depends on whether the algorithm is recurrent.
     policies.check_policy_config(config)
-    algo.check_algo_config(config)
 
     return config
 
@@ -210,12 +210,12 @@ def prep_config(parser, args):
         config["save_checkpoints"] = True
         config["eval_checkpoints"] = True
         config["checkpoint_initial_model"] = False
+        config["video_episodes"] = 1  # Still record (unless --no-video), so the smoke test covers that path too.
         train_cfg = config["train_config"]
         train_cfg["n_envs"] = 2
         train_cfg["n_eval_episodes"] = 2
         train_cfg["n_final_eval_episodes"] = 2
         train_cfg["n_eval_envs"] = 2
-        train_cfg["video_episodes"] = 1  # Still record, so the smoke test covers that path too.
         train_cfg["algo_args"].update({"n_steps": 8, "batch_size": 16, "n_epochs": 1})
         train_cfg["total_timesteps"] = 3 * 2 * 8  # Three rollouts, mirroring the supervised smoke test's 3 batches.
         train_cfg["eval_freq"] = train_cfg["save_freq"] = train_cfg["record_freq"] = 2 * 8

@@ -95,3 +95,27 @@ def test_torchrun_is_refused(tmp_path):
             main(["-c", CONFIG, "--st", "-o", str(tmp_path)])
     finally:
         del os.environ["WORLD_SIZE"]
+
+
+def test_recurrent_ppo_trains_and_saves_its_lstm(tmp_path):
+    import yaml
+    with open(CONFIG) as f:
+        config = yaml.safe_load(f)
+    config["train_config"]["algo"] = "RecurrentPPO"
+    config.setdefault("policy", {})["lstm_hidden_size"] = 32
+    config_path = tmp_path / "recurrent.yml"
+    config_path.write_text(yaml.dump(config))
+
+    os.environ["WANDB_MODE"] = "disabled"
+    out = tmp_path / "out"
+    assert main(["-c", str(config_path), "--st", "--env", "MiniGrid-Empty-5x5-v0", "-o", str(out)]) == 0
+    keys = list(torch.load(out / "checkpoint.pth", map_location="cpu", weights_only=True)["model"])
+    assert any(k.startswith("lstm_actor.") for k in keys), "The checkpoint should include the actor's LSTM."
+    assert list((out / "video").glob("*.mp4")), "Recording must thread the LSTM state through predict()."
+
+
+def test_lstm_options_are_rejected_without_a_recurrent_algo():
+    from rl_train import validate_config
+    from tests.rl.configs import smoke_config
+    with pytest.raises(RuntimeError, match="only apply to a recurrent algorithm"):
+        validate_config(smoke_config(policy={"features_dim": 64, "lstm_hidden_size": 32}), print_config=False)
