@@ -26,7 +26,7 @@ import utils.argparsing as argutils
 import utils.distributed as dist
 import utils.training as training
 from stitch_train import get_result_file, save_results
-from utils import make_pretty
+from utils import ensure_config_param, gt_zero, make_pretty, of_type
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
@@ -153,6 +153,11 @@ def validate_config(config, print_config=True):
     envs.check_env_config(config)
     algo.check_algo_config(config)  # Before the policy, which depends on whether the algorithm is recurrent.
     policies.check_policy_config(config)
+
+    # Check video recording settings.
+    ensure_config_param(config, "record_video", of_type(bool), dflt=True)
+    ensure_config_param(config, "video_episodes", gt_zero, dflt=5)
+    ensure_config_param(config, "video_fps", gt_zero, dflt=6)
 
     return config
 
