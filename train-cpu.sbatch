@@ -29,7 +29,7 @@ echo "Activate $CONDAENV"
 conda activate $CONDAENV
 
 nodes=$SLURM_NTASKS
-nproc=$((SLURM_GPUS_ON_NODE > 0 ? SLURM_GPUS_ON_NODE : 1))
+ngpu=$((SLURM_GPUS_ON_NODE > 0 ? SLURM_GPUS_ON_NODE : 0))
 ncpu=$SLURM_CPUS_PER_TASK
 nworkers=$((ncpu / nproc))
 if [ $nworkers -lt 5 ]; then
@@ -38,7 +38,7 @@ if [ $nworkers -lt 5 ]; then
 fi
 progname=$2
 cmd="$progname -j $nworkers ${*:3}"
-echo "Launching command with $nodes nodes, $nproc GPUs, $ncpu CPUs:"
+echo "Launching command with $nodes nodes, $ngpu GPUs, $ncpu CPUs:"
 echo "    $cmd"
 
 srun python $progname -j $nworkers "${@:3}"
