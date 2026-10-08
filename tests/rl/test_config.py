@@ -119,7 +119,7 @@ def test_command_line_overrides_reach_every_level():
     # The three nesting levels each have their own override list; make sure all of them are wired up.
     parser = create_arg_parser("test")
     args = parser.parse_args(["-c", EXAMPLE_CONFIGS[0], "--env", "MiniGrid-Empty-5x5-v0", "--lr", "1e-3",
-                              "-b", "16", "--ppo-epochs", "3", "--features-dim", "32", "-t", "2048"])
+                              "-b", "16", "--epochs", "3", "--features-dim", "32", "-t", "2048"])
     config = prep_config(parser, args)
     assert config["train_config"]["env"] == "MiniGrid-Empty-5x5-v0"        # train_config
     assert config["train_config"]["total_timesteps"] == 2048               # train_config

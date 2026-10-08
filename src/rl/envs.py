@@ -34,10 +34,11 @@ class Benchmark:
         """ Import whatever package registers this benchmark's environment ids with Gymnasium. """
         raise NotImplementedError
 
-    def wrapper_class(self, obs_mode, obs_kwargs=None, count_bonus=0.0) -> Callable:
+    def wrapper_class(self, obs_mode, obs_kwargs=None, count_bonus=0.0, count_bonus_episodic=False) -> Callable:
         """
         Return a callable which applies this benchmark's wrappers for the given observation mode to one env, plus a
-        count-based exploration bonus of `count_bonus / sqrt(n(s))` if `count_bonus` is nonzero.
+        count-based exploration bonus of `count_bonus / sqrt(n(s))` if `count_bonus` is nonzero. The counts are
+        reset at the start of every episode if `count_bonus_episodic` is True.
         """
         raise NotImplementedError
 
@@ -73,11 +74,11 @@ class MiniGridBenchmark(Benchmark):
     def register(self):
         import minigrid  # noqa: F401  (importing is what registers the env ids)
 
-    def wrapper_class(self, obs_mode, obs_kwargs=None, count_bonus=0.0):
+    def wrapper_class(self, obs_mode, obs_kwargs=None, count_bonus=0.0, count_bonus_episodic=False):
         obs_wrapper = self._obs_wrapper(obs_mode, obs_kwargs)
         if not count_bonus:
             return obs_wrapper
-        return lambda env: MiniGridCountBonus(obs_wrapper(env), count_bonus)
+        return lambda env: MiniGridCountBonus(obs_wrapper(env), count_bonus, count_bonus_episodic)
 
     def _obs_wrapper(self, obs_mode, obs_kwargs=None):
         from minigrid.wrappers import (FlatObsWrapper, ImgObsWrapper, RGBImgObsWrapper, RGBImgPartialObsWrapper)
@@ -104,26 +105,31 @@ class MiniGridBenchmark(Benchmark):
 
 class MiniGridCountBonus(gym.Wrapper):
     """
-    Adds `coef / sqrt(n(s))` to every reward, where `n(s)` counts the visits to state `s` over this env's lifetime
-    (not reset between episodes). The state is the agent's position and direction, what it is carrying, and the
-    open/locked state of every door, so picking up the key and opening the door each lead to fresh, rewarding states.
+    Adds `coef / sqrt(n(s))` to every reward, where `n(s)` counts the visits to state `s` over this env's lifetime,
+    or within the current episode if `episodic` is set. The state is the agent's position and direction, what it is
+    carrying, and the open/locked state of every door, so picking up the key and opening the door each lead to fresh,
+    rewarding states.
 
-    The state ignores the layout, which changes every episode; the counts therefore measure how familiar a position
-    and subgoal stage are in general. Each env keeps its own counts, so with N parallel envs a state must be visited
-    roughly N times as often before its bonus decays.
+    The state ignores the layout, which changes every episode; lifetime counts therefore measure how familiar a
+    position and subgoal stage are in general, and decay toward zero over training. Episodic counts instead reward
+    covering the current layout, and never decay. With lifetime counts each env keeps its own, so with N parallel
+    envs a state must be visited roughly N times as often before its bonus decays.
 
     This must wrap *outside* the Monitor, so that the logged episode returns, and hence success, stay extrinsic.
     """
 
-    def __init__(self, env, coef):
+    def __init__(self, env, coef, episodic=False):
         super().__init__(env)
         self.coef = coef
+        self.episodic = episodic
         self.counts = Counter()
         self._doors = []
 
     def reset(self, **kwargs):
         from minigrid.core.world_object import Door
         obs, info = self.env.reset(**kwargs)
+        if self.episodic:
+            self.counts.clear()
         self._doors = [obj for obj in self.unwrapped.grid.grid if isinstance(obj, Door)]
         return obs, info
 
@@ -182,11 +188,13 @@ def check_env_config(config):
     ensure_config_param(config, ["train_config", "normalize_obs"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "normalize_reward"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "count_bonus"], gte_zero, dflt=0.0)
+    ensure_config_param(config, ["train_config", "count_bonus_episodic"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "eval_env"], of_type(str), required=False)
     ensure_config_param(config, ["train_config", "n_eval_episodes"], gt_zero, dflt=100)
     ensure_config_param(config, ["train_config", "n_final_eval_episodes"], gt_zero,
                         dflt=config["train_config"]["n_eval_episodes"])
     ensure_config_param(config, ["train_config", "n_eval_envs"], gt_zero, dflt=1)
+    ensure_config_param(config, ["train_config", "stochastic_eval"], of_type(bool), dflt=False)
     ensure_config_param(config, ["train_config", "eval_seed_offset"], of_type(int), dflt=10000)
 
     # Running statistics only make sense for real-valued observations. On uint8 images VecNormalize would both
@@ -204,7 +212,8 @@ def check_env_config(config):
                            f"'{benchmark.name}' (e.g. 'BabyAI-GoToRedBallNoDists-v0'). Original error: {e}")
 
 
-def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=None, count_bonus=0.0):
+def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=None, count_bonus=0.0,
+                  count_bonus_episodic=False):
     """
     Build one vectorized environment according to the config.
 
@@ -215,7 +224,8 @@ def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=Non
         is_eval: Whether this is the evaluation environment, which uses `eval_env` if one is configured.
         render_mode: (Optional) Gymnasium render mode, e.g. "rgb_array" to capture frames for a video.
         count_bonus: (Optional) Coefficient of a count-based exploration bonus added to the rewards. Only for
-            training; the bonus is excluded from the Monitor's episode returns but not from the rewards `step()` returns.
+            training; the bonus is excluded from the Monitor's episode returns, but not from what `step()` returns.
+        count_bonus_episodic: (Optional) Reset the bonus's visit counts at the start of every episode.
     Returns:
         VecEnv: The vectorized environment.
     """
@@ -240,7 +250,8 @@ def make_vec_envs(config, n_envs=None, seed=None, is_eval=False, render_mode=Non
         n_envs=n_envs,
         seed=seed,
         env_kwargs=env_kwargs,
-        wrapper_class=benchmark.wrapper_class(train_cfg["obs_mode"], train_cfg.get("obs_kwargs"), count_bonus),
+        wrapper_class=benchmark.wrapper_class(train_cfg["obs_mode"], train_cfg.get("obs_kwargs"), count_bonus,
+                                              count_bonus_episodic),
         vec_env_cls=VEC_ENV_CLASSES[train_cfg["vec_env"]] if n_envs > 1 else DummyVecEnv,
     )
     return maybe_transpose_images(venv)
@@ -272,7 +283,8 @@ def make_train_and_eval_envs(config):
         tuple: (train_env, eval_env). `eval_env` is None if evaluation is turned off.
     """
     train_cfg = config["train_config"]
-    train_env = make_vec_envs(config, count_bonus=train_cfg["count_bonus"])
+    train_env = make_vec_envs(config, count_bonus=train_cfg["count_bonus"],
+                              count_bonus_episodic=train_cfg["count_bonus_episodic"])
 
     eval_env = None
     if config.get("eval_checkpoints", True):

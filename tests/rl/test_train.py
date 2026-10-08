@@ -119,3 +119,20 @@ def test_lstm_options_are_rejected_without_a_recurrent_algo():
     from tests.rl.configs import smoke_config
     with pytest.raises(RuntimeError, match="only apply to a recurrent algorithm"):
         validate_config(smoke_config(policy={"features_dim": 64, "lstm_hidden_size": 32}), print_config=False)
+
+
+def test_stochastic_eval_is_recorded_alongside_the_deterministic_one(tmp_path):
+    import yaml
+    with open(CONFIG) as f:
+        config = yaml.safe_load(f)
+    config["train_config"]["stochastic_eval"] = True
+    config_path = tmp_path / "stochastic.yml"
+    config_path.write_text(yaml.dump(config))
+
+    os.environ["WANDB_MODE"] = "disabled"
+    out = tmp_path / "out"
+    assert main(["-c", str(config_path), "--st", "--env", "MiniGrid-Empty-5x5-v0", "-o", str(out)]) == 0
+    df = pd.read_pickle(out / "result.pkl")
+    for name in ("Reward", "Episode Length", "Success Rate"):
+        assert f"Eval/{name}" in df.columns
+        assert f"Eval/Stochastic {name}" in df.columns

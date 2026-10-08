@@ -104,7 +104,7 @@ def create_arg_parser(desc, allow_abbrev=True, allow_id=True):
                         help="Number of episodes in the evaluation at the end of training.")
     parser.add_argument("--steps", dest="n_steps", type=int, metavar="N",
                         help="Steps to collect from each environment per rollout. One rollout is n_envs * n_steps.")
-    parser.add_argument("--ppo-epochs", dest="n_epochs", type=int, metavar="N",
+    parser.add_argument("--epochs", dest="n_epochs", type=int, metavar="N",
                         help="Number of passes the algorithm makes over each rollout. Distinct from the number of"
                              " environment steps, which is --steps.")
     parser.add_argument("-b", "--batch-size", type=int, metavar="N",

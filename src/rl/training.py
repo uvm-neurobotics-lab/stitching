@@ -195,6 +195,7 @@ def train(config, sb3_model, eval_env, device):
         n_eval_episodes=train_cfg["n_eval_episodes"],
         n_final_eval_episodes=train_cfg["n_final_eval_episodes"],
         eval_seed=train_cfg["seed"] + train_cfg["eval_seed_offset"],
+        stochastic_eval=train_cfg["stochastic_eval"],
         print_freq=config.get("print_freq", 10) if config.get("verbose", 0) <= 1 else 1,
         save_freq=train_cfg["save_freq"] if config.get("save_checkpoints") else 0,
         eval_freq=train_cfg["eval_freq"] if config.get("eval_checkpoints", True) else 0,

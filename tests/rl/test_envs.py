@@ -147,3 +147,17 @@ def test_count_bonus_is_training_only_and_not_logged():
     finally:
         train_env.close()
         eval_env.close()
+
+
+def test_episodic_count_bonus_resets_each_episode():
+    import gymnasium as gym
+    import minigrid  # noqa: F401
+    from rl.envs import MiniGridCountBonus
+    env = MiniGridCountBonus(gym.make("MiniGrid-Empty-5x5-v0"), coef=0.1, episodic=True)
+    env.reset(seed=0)
+    env.step(0)
+    assert env.counts, "Visits within an episode should be counted."
+    env.reset(seed=0)
+    assert not env.counts, "An episodic bonus should forget the previous episode's visits."
+    _, reward, *_ = env.step(0)
+    assert reward == pytest.approx(0.1)

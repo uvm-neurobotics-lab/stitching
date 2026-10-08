@@ -6,7 +6,8 @@ inside SB3's training loop. Everything is indexed by environment timestep; there
 
 Metric names are deliberately RL-native. The `Train/` and `Eval/` prefixes mark a real distinction: training
 episodes come from the stochastic behavior policy in the middle of learning, while evaluation episodes come from a
-separately seeded environment under a deterministic policy.
+separately seeded environment under a deterministic policy. `stochastic_eval` additionally scores the sampled
+policy on the same layouts, under `Eval/Stochastic ...`, to separate "cannot solve it" from "only solves it by chance".
 """
 import datetime
 from time import time
@@ -41,7 +42,8 @@ class RLLog(BaseLog):
     """
 
     def __init__(self, benchmark, expected_steps, n_eval_episodes=20, n_final_eval_episodes=None,
-                 eval_seed=None, deterministic_eval=True, metrics_to_print=tuple(), print_freq=1, save_freq=0,
+                 eval_seed=None, stochastic_eval=False, metrics_to_print=tuple(),
+                 print_freq=1, save_freq=0,
                  eval_freq=0, save_dir=None, model_name="", use_wandb=False, checkpoint_initial_model=True,
                  print_delimiter="\t"):
         super().__init__(metrics_to_print, eval_freq, save_freq, save_dir, model_name, use_wandb,
@@ -51,13 +53,15 @@ class RLLog(BaseLog):
         self.n_eval_episodes = n_eval_episodes
         self.n_final_eval_episodes = n_final_eval_episodes or n_eval_episodes
         self.eval_seed = eval_seed
-        self.deterministic_eval = deterministic_eval
+        self.stochastic_eval = stochastic_eval
         self.print_freq = print_freq
         self.records_seen = 0
         if self.use_wandb:
             self.define_wandb_metric("Loss", "last")
             self.define_wandb_metric("Eval/Reward", "max")
             self.define_wandb_metric("Eval/Success Rate", "max")
+            if stochastic_eval:
+                self.define_wandb_metric("Eval/Stochastic Success Rate", "max")
             self.define_wandb_metric("Train/Reward", "max")
             self.define_wandb_metric("Time/Total", "last")
             self.define_wandb_metric("GPU Mem", "max")
@@ -71,21 +75,26 @@ class RLLog(BaseLog):
         the same layouts. Without this, each evaluation would continue the environment's random stream and see a
         new set of layouts, adding layout-to-layout noise to the learning curve.
         """
-        from stable_baselines3.common.evaluation import evaluate_policy
-
         episodes = episodes or self.n_eval_episodes
         start = time()
+        metrics = self._evaluate_once(sb3_model, eval_env, episodes, True, "Eval/")
+        if self.stochastic_eval:
+            metrics.update(self._evaluate_once(sb3_model, eval_env, episodes, False, "Stochastic Eval/"))
+        metrics["Time/Eval Total"] = time() - start
+        return metrics
+
+    def _evaluate_once(self, sb3_model, eval_env, episodes, deterministic, prefix):
+        from stable_baselines3.common.evaluation import evaluate_policy
+
         if self.eval_seed is not None:
             eval_env.seed(self.eval_seed)  # Takes effect on the reset() that evaluate_policy() begins with.
         rewards, lengths = evaluate_policy(sb3_model, eval_env, n_eval_episodes=episodes,
-                                           deterministic=self.deterministic_eval, return_episode_rewards=True,
-                                           warn=False)
+                                           deterministic=deterministic, return_episode_rewards=True, warn=False)
         successes = [self.benchmark.is_success({"r": r}) for r in rewards]
         return {
-            "Eval/Reward": float(np.mean(rewards)),
-            "Eval/Episode Length": float(np.mean(lengths)),
-            "Eval/Success Rate": float(np.mean(successes)),
-            "Time/Eval Total": time() - start,
+            f"{prefix}Reward": float(np.mean(rewards)),
+            f"{prefix}Episode Length": float(np.mean(lengths)),
+            f"{prefix}Success Rate": float(np.mean(successes)),
         }
 
     def maybe_save_and_eval(self, it, sb3_model, eval_env, config, should_eval=None, should_save=None,
@@ -96,10 +105,13 @@ class RLLog(BaseLog):
         if should_eval and eval_env is not None:
             n_eval_episodes = n_eval_episodes or self.n_eval_episodes
             metrics.update(self.evaluate(sb3_model, eval_env, n_eval_episodes))
-            self.info(f"    Step {it} Eval: Reward: {metrics['Eval/Reward']:.3f}"
-                      f"\tSuccess Rate: {metrics['Eval/Success Rate']:.3f}"
-                      f"\tEpisode Length: {metrics['Eval/Episode Length']:.1f}"
-                      f"\t({n_eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
+            msg = (f"    Step {it} Eval: Reward: {metrics['Eval/Reward']:.3f}"
+                   f"\tSuccess Rate: {metrics['Eval/Success Rate']:.3f}"
+                   f"\tEpisode Length: {metrics['Eval/Episode Length']:.1f}")
+            if self.stochastic_eval:
+                msg += (f"\tStochastic Success Rate: {metrics['Eval/Stochastic Success Rate']:.3f}"
+                        f"\tStochastic Episode Length: {metrics['Eval/Stochastic Episode Length']:.1f}")
+            self.info(msg + f"\t({n_eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
 
         if should_save and dist.is_main_process():
             self.write_checkpoint(self.build_checkpoint(it, sb3_model, config), it)

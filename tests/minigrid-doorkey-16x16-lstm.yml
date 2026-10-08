@@ -1,6 +1,9 @@
 #
 # Like minigrid-doorkey-16x16.yml, but with an LSTM policy (RecurrentPPO), so the agent can remember the key and door
-# once they leave its 7x7 view. A 1M-step test run; scale total_timesteps (and eval_freq) up for a full run.
+# once they leave its 7x7 view. Also gentler PPO updates (fewer epochs, larger minibatches, target_kl) to stop the
+# policy collapsing after it finds the goal, more parallel envs, and a longer discount horizon. A constant learning
+# rate and a small entropy coefficient (the count bonus drives exploration instead) so the policy can become decisive,
+# per-episode visit counts, and a second, stochastic evaluation alongside the deterministic one.
 #
 # Like minigrid-doorkey.yml, but on MiniGrid-DoorKey-16x16-v0 with a count-based exploration bonus. Vanilla PPO does
 # not find the sparse reward in a room this large; the bonus (count_bonus / sqrt(visits) per step, training only)
@@ -55,40 +58,46 @@ train_config:
   benchmark: minigrid
   env: MiniGrid-DoorKey-16x16-v0
   obs_mode: symbolic
-  n_envs: 8
+  n_envs: 16
   vec_env: dummy                # Stepping is cheap here, so worker subprocesses would only add overhead.
 
   # General Params
   seed: 12345
-  total_timesteps: 1000000
+  total_timesteps: 20000000
 
   # Reporting, all counted in environment steps and rounded up to whole rollouts.
-  eval_freq: 50000
-  save_freq: 1000000
+  eval_freq: 250000
+  save_freq: 2500000
 
   # Algorithm
   algo: RecurrentPPO
   algo_args:
-    n_steps: 128                # One rollout is n_envs * n_steps = 1024 environment steps.
-    batch_size: 64
-    n_epochs: 10                # Passes over each rollout, not environment steps.
-    gamma: 0.99
+    n_steps: 128                # One rollout is n_envs * n_steps = 2048 environment steps.
+    batch_size: 256
+    n_epochs: 4                 # Passes over each rollout, not environment steps.
+    gamma: 0.995
     gae_lambda: 0.95
     clip_range: 0.2
-    ent_coef: 0.01
+    ent_coef: 0.001
     vf_coef: 0.5
     max_grad_norm: 0.5
+    target_kl: 0.02             # Stop an update's epochs early if the policy moves too far (SB3 uses 1.5x this).
 
   # Exploration
-  count_bonus: 0.005            # Coefficient of the count-based exploration bonus; 0 turns it off.
+  # Coefficient of the count-based exploration bonus; 0 turns it off. Episodic counts never decay, so this is smaller
+  # than the 0.005 used with lifetime counts: a random policy collects ~1.2 per episode at 0.001, vs. 6 at 0.005,
+  # which would dwarf the extrinsic reward (at most 1) and make reaching the goal (which ends the episode) a loss.
+  count_bonus: 0.001
+  count_bonus_episodic: true    # Reset the visit counts every episode, rewarding coverage of the current layout.
 
   # Optimization
   optimizer: Adam
   optimizer_args:
     lr: 2.5e-4
     eps: 1.0e-5
-  lr_schedule: linear
+  lr_schedule: constant
 
   # Evaluation
+  stochastic_eval: true         # Also evaluate the sampled policy, on the same layouts.
   n_eval_episodes: 20
   n_eval_envs: 1
