@@ -29,6 +29,7 @@ echo "Activate $CONDAENV"
 conda activate $CONDAENV
 
 nodes=$SLURM_NTASKS
+nproc=$((SLURM_GPUS_ON_NODE > 0 ? SLURM_GPUS_ON_NODE : 1))
 ngpu=$((SLURM_GPUS_ON_NODE > 0 ? SLURM_GPUS_ON_NODE : 0))
 ncpu=$SLURM_CPUS_PER_TASK
 nworkers=$((ncpu / nproc))
