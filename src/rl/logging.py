@@ -7,7 +7,7 @@ inside SB3's training loop. Everything is indexed by environment timestep; there
 Metric names are deliberately RL-native. The `Train/` and `Eval/` prefixes mark a real distinction: training
 episodes come from the stochastic behavior policy in the middle of learning, while evaluation episodes come from a
 separately seeded environment under a deterministic policy. `stochastic_eval` additionally scores the sampled
-policy on the same layouts, under `Eval/Stochastic ...`, to separate "cannot solve it" from "only solves it by chance".
+policy on the same layouts, under `Stochastic Eval/...`, to separate "cannot solve it" from "only solves it by chance".
 """
 import datetime
 from time import time
@@ -61,7 +61,7 @@ class RLLog(BaseLog):
             self.define_wandb_metric("Eval/Reward", "max")
             self.define_wandb_metric("Eval/Success Rate", "max")
             if stochastic_eval:
-                self.define_wandb_metric("Eval/Stochastic Success Rate", "max")
+                self.define_wandb_metric("Stochastic Eval/Success Rate", "max")
             self.define_wandb_metric("Train/Reward", "max")
             self.define_wandb_metric("Time/Total", "last")
             self.define_wandb_metric("GPU Mem", "max")
@@ -109,8 +109,8 @@ class RLLog(BaseLog):
                    f"\tSuccess Rate: {metrics['Eval/Success Rate']:.3f}"
                    f"\tEpisode Length: {metrics['Eval/Episode Length']:.1f}")
             if self.stochastic_eval:
-                msg += (f"\tStochastic Success Rate: {metrics['Eval/Stochastic Success Rate']:.3f}"
-                        f"\tStochastic Episode Length: {metrics['Eval/Stochastic Episode Length']:.1f}")
+                msg += (f"\tStochastic Success Rate: {metrics['Stochastic Eval/Success Rate']:.3f}"
+                        f"\tStochastic Episode Length: {metrics['Stochastic Eval/Episode Length']:.1f}")
             self.info(msg + f"\t({n_eval_episodes} episodes in {metrics['Time/Eval Total']:.1f}s)")
 
         if should_save and dist.is_main_process():

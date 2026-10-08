@@ -135,4 +135,4 @@ def test_stochastic_eval_is_recorded_alongside_the_deterministic_one(tmp_path):
     df = pd.read_pickle(out / "result.pkl")
     for name in ("Reward", "Episode Length", "Success Rate"):
         assert f"Eval/{name}" in df.columns
-        assert f"Eval/Stochastic {name}" in df.columns
+        assert f"Stochastic Eval/{name}" in df.columns
